@@ -138,6 +138,8 @@
   .empty-sub { font-size: 12px; margin-top: 4px; }
   .delete-btn { background: none; border: none; cursor: pointer; color: var(--text-light); font-size: 14px; padding: 2px 5px; border-radius: 4px; transition: all 0.12s; }
   .delete-btn:hover { background: var(--red-lt); color: var(--red); }
+  .edit-btn { background: none; border: none; cursor: pointer; font-size: 14px; padding: 2px 5px; border-radius: 4px; transition: all 0.12s; }
+  .edit-btn:hover { background: var(--blue-lt); }
   .mgr-badge { background: var(--purple-lt); color: var(--purple); padding: 2px 7px; border-radius: 20px; font-size: 9px; font-weight: 700; text-transform: uppercase; }
   .notes-area { width: 100%; font-family: 'Montserrat', sans-serif; font-size: 12px; resize: vertical; min-height: 65px; }
   .notes-display { font-size: 12px; color: var(--text-mid); background: var(--blue-lt); border-radius: 6px; padding: 9px; font-style: italic; line-height: 1.6; margin-bottom: 9px; }
@@ -349,7 +351,8 @@
           <div class="form-group"><label class="form-label">Notes (optional)</label><textarea class="form-input notes-area" id="entry-notes" placeholder="Anything to flag..."></textarea></div>
           <div class="form-actions">
             <button class="btn btn-secondary" onclick="clearForm()">Clear</button>
-            <button class="btn btn-primary" onclick="submitEntry()">Save Entry</button>
+            <button class="btn btn-secondary" id="entry-cancel-edit" style="display:none;background:var(--amber-lt);color:var(--amber)" onclick="cancelEdit()">✕ Cancel Edit</button>
+            <button class="btn btn-primary" id="entry-save-btn" onclick="submitEntry()">Save Entry</button>
           </div>
         </div>
       </div>
@@ -367,29 +370,19 @@
 // ─────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────
-const KEY = 'ally_psych_v3';
+const KEY = 'ally_psych_v4';
 const SCHEDULERS = {
-  'Katie Youngson':   { tier:'Stretch',    t:{a:25,c:75,d:125}, jan:{a:18.9,i:7.6,f:11.2}, feb:{a:22.8,i:10.5,f:12.4} },
-  'Kristie Brooks':   { tier:'Close',      t:{a:23,c:75,d:125}, jan:{a:16.3,i:9.8,f:6.4},  feb:{a:21.7,i:10.9,f:10.8} },
-  'Lauren Waddell':   { tier:'Close',      t:{a:23,c:75,d:125}, jan:{a:18.6,i:7.3,f:11.3}, feb:{a:21.3,i:10.4,f:10.9} },
-  'Shana Robinson':   { tier:'Close',      t:{a:22,c:75,d:125}, jan:{a:18.9,i:6.7,f:12.2}, feb:{a:20.4,i:6.6,f:13.7} },
-  'Peggy Bunch':      { tier:'Recovery',   t:{a:20,c:75,d:125}, jan:{a:22.9,i:1.6,f:21.4}, feb:{a:17.5,i:6.0,f:11.6} },
-  'Jessica Marousek': { tier:'Recovery',   t:{a:18,c:75,d:125}, jan:{a:17.6,i:4.1,f:13.5}, feb:{a:16.2,i:5.3,f:10.9} },
-  'Florence Barnes':  { tier:'Needs Attn', t:{a:17,c:60,d:80},  jan:{a:12.8,i:8.5,f:4.2},  feb:{a:14.1,i:6.6,f:7.5} },
-  'Ashley Thorn':     { tier:'Needs Attn', t:{a:17,c:60,d:75},  jan:{a:15.3,i:4.9,f:10.3}, feb:{a:14.0,i:6.5,f:7.5} },
-  'Natyka Alexander': { tier:'Needs Attn', t:{a:17,c:60,d:75},  jan:{a:15.0,i:5.8,f:9.2},  feb:{a:13.9,i:6.8,f:7.1} },
+  'Katie Youngson':   { tier:'Stretch',    t:{a:25,c:75,d:125} },
+  'Kristie Brooks':   { tier:'Close',      t:{a:23,c:75,d:125} },
+  'Lauren Waddell':   { tier:'Close',      t:{a:23,c:75,d:125} },
+  'Shana Robinson':   { tier:'Close',      t:{a:22,c:75,d:125} },
+  'Peggy Bunch':      { tier:'Recovery',   t:{a:20,c:75,d:125} },
+  'Jessica Marousek': { tier:'Recovery',   t:{a:18,c:75,d:125} },
+  'Florence Barnes':  { tier:'Needs Attn', t:{a:17,c:60,d:80}  },
+  'Ashley Thorn':     { tier:'Needs Attn', t:{a:17,c:60,d:75}  },
+  'Natyka Alexander': { tier:'Needs Attn', t:{a:17,c:60,d:75}  },
 };
-const BASE = { // March MTD baseline
-  'Katie Youngson':   {a:18.9,i:7.7,f:11.2,c:74.8,d:66},
-  'Kristie Brooks':   {a:25.8,i:10.9,f:14.9,c:74.3,d:40},
-  'Lauren Waddell':   {a:24.9,i:11.4,f:13.5,c:70.6,d:119},
-  'Shana Robinson':   {a:19.8,i:7.6,f:12.2,c:86.7,d:100},
-  'Peggy Bunch':      {a:17.8,i:5.9,f:11.9,c:71.9,d:189},
-  'Jessica Marousek': {a:19.1,i:5.6,f:13.6,c:96.1,d:156},
-  'Florence Barnes':  {a:14.3,i:5.6,f:8.7,c:54.1,d:70},
-  'Ashley Thorn':     {a:16.1,i:6.6,f:9.5,c:73.4,d:56},
-  'Natyka Alexander': {a:14.7,i:6.3,f:8.4,c:59.1,d:88},
-};
+
 const NAMES = Object.keys(SCHEDULERS);
 
 // ─────────────────────────────────────────────
@@ -449,18 +442,11 @@ function agg(name, s, e){
     live:true
   };
 }
-function getMar(name){ // live or baseline
-  const m=agg(name,'2026-03-01','2026-03-31');
-  if(m) return m;
-  const b=BASE[name]; return {a:b.a,i:b.i,f:b.f,c:b.c,d:b.d,days:0,live:false};
+function getMar(name){
+  return agg(name,'2026-03-01','2026-03-31');
 }
-function isMarch(s,e){ return (s>='2026-03-01'&&s<='2026-03-31')||(e>='2026-03-01'&&e<='2026-03-31')||(s<='2026-03-01'&&e>='2026-03-31'); }
-
 function aggOrBase(name,s,e){
-  const m=agg(name,s,e);
-  if(m) return m;
-  if(isMarch(s,e)){ const b=BASE[name]; return {a:b.a,i:b.i,f:b.f,c:b.c,d:b.d,days:0,live:false}; }
-  return null;
+  return agg(name,s,e);
 }
 
 // ─────────────────────────────────────────────
@@ -501,6 +487,107 @@ function scorecard(s,e,label){
 }
 
 // ─────────────────────────────────────────────
+// LEADERBOARD — full ranked list for Daily/WTD/MTD
+// ─────────────────────────────────────────────
+function leaderboardHTML(s, e, label, dailyEntries){
+  let ranked;
+  if(dailyEntries){
+    ranked = dailyEntries
+      .filter(x=>x.status==='worked')
+      .map(x=>({ name:x.name, sc:SCHEDULERS[x.name]||{tier:'—',t:{a:22,c:75,d:125}},
+        a:+x.appts||0, c:+x.calls||0, d:+x.collections||0 }))
+      .sort((a,b)=>b.a-a.a);
+  } else {
+    ranked = NAMES
+      .map(n=>{ const m=aggOrBase(n,s,e); return m?{name:n,sc:SCHEDULERS[n],a:m.a||0,c:m.c||0,d:m.d||0}:null; })
+      .filter(Boolean)
+      .sort((a,b)=>b.a-a.a);
+  }
+  if(!ranked.length) return '';
+  const max=ranked[0]?.a||1;
+
+  let rows='';
+  ranked.forEach((r,i)=>{
+    const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':'';
+    const rc=i===0?'rank-1':i===1?'rank-2':i===2?'rank-3':'rank-other';
+    const barW=pct(r.a,max);
+    rows+=`<tr style="${i<3?'background:var(--blue-lt)':''}">
+      <td style="width:32px;text-align:center">
+        ${medal?`<span style="font-size:16px">${medal}</span>`:`<span class="rank-badge rank-other" style="font-size:10px">${i+1}</span>`}
+      </td>
+      <td class="scheduler-name" style="cursor:pointer" onclick="jumpTo('${r.name}')">${r.name}</td>
+      <td><span class="tier-pill ${tc(r.sc.tier)}">${r.sc.tier}</span></td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="flex:1;min-width:60px"><div class="progress-bar" style="margin:0"><div class="progress-fill ${i===0?'fill-green':i===1?'fill-blue':'fill-amber'}" style="width:${barW}%"></div></div></div>
+          <span style="font-size:13px;font-weight:900;color:var(--blue);min-width:32px;text-align:right">${fn(r.a)}</span>
+        </div>
+      </td>
+      <td class="${mc(r.c,r.sc.t.c)} metric-bold">${fn(r.c,0)}</td>
+      <td class="${mc(r.d,r.sc.t.d)} metric-bold">${fd(r.d)}</td>
+    </tr>`;
+  });
+
+  return `<div class="card" style="margin-bottom:18px">
+    <div class="card-title"><span class="card-title-accent"></span> Leaderboard — ${label}</div>
+    <div class="scrollable-table"><table class="data-table">
+      <thead><tr><th style="width:32px">#</th><th>Scheduler</th><th>Tier</th><th>Appts/Day</th><th>Calls/Day</th><th>Collections</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+  </div>`;
+}
+
+// ─────────────────────────────────────────────
+// TOP 3 PODIUM BUILDER
+// ─────────────────────────────────────────────
+function top3HTML(s, e, label, dailyEntries){
+  // dailyEntries = pre-filtered array for single-day view (optional)
+  let ranked;
+  if(dailyEntries){
+    // Daily view: rank by raw appts for that day
+    ranked = dailyEntries
+      .filter(x=>x.status==='worked')
+      .map(x=>({ name:x.name, sc:SCHEDULERS[x.name]||{tier:'—',t:{a:22,c:75,d:125}},
+        a:+x.appts||0, c:+x.calls||0, d:+x.collections||0 }))
+      .sort((a,b)=>b.a-a.a)
+      .slice(0,3);
+  } else {
+    ranked = NAMES
+      .map(n=>{ const m=aggOrBase(n,s,e); return m?{name:n,sc:SCHEDULERS[n],a:m.a||0,c:m.c||0,d:m.d||0}:null; })
+      .filter(Boolean)
+      .sort((a,b)=>b.a-a.a)
+      .slice(0,3);
+  }
+  if(!ranked.length) return '';
+
+  const medals=['🥇','🥈','🥉'];
+  const bgColors=['linear-gradient(135deg,#FFF8DC,#FFD700)','linear-gradient(135deg,#F5F5F5,#C0C0C0)','linear-gradient(135deg,#FDF3E3,#CD7F32)'];
+  const borderColors=['#D4AF00','#A8A8A8','#A0522D'];
+  const labelColors=['#7A5C00','#555555','#6B3A1F'];
+
+  let podium='';
+  ranked.forEach((r,i)=>{
+    podium+=`
+    <div style="flex:1;min-width:140px;background:${bgColors[i]};border:2px solid ${borderColors[i]};border-radius:12px;padding:16px 14px;text-align:center;position:relative;">
+      <div style="font-size:28px;margin-bottom:6px">${medals[i]}</div>
+      <div style="font-size:13px;font-weight:900;color:var(--text-dark);margin-bottom:4px;line-height:1.2">${r.name.split(' ')[0]}<br><span style="font-size:11px;font-weight:600;color:var(--text-mid)">${r.name.split(' ').slice(1).join(' ')}</span></div>
+      <div style="font-size:24px;font-weight:900;color:${labelColors[i]};margin:8px 0 2px">${fn(r.a)}</div>
+      <div style="font-size:10px;font-weight:700;color:${labelColors[i]};letter-spacing:0.5px;text-transform:uppercase;margin-bottom:8px">Appts/Day</div>
+      <div style="display:flex;justify-content:center;gap:12px;font-size:10px;font-weight:700;color:${labelColors[i]};opacity:0.85">
+        <span>📞 ${fn(r.c,0)}</span>
+        <span>💵 ${fd(r.d)}</span>
+      </div>
+      <span style="position:absolute;top:8px;right:10px;font-size:9px;font-weight:700;background:rgba(0,0,0,0.1);color:${labelColors[i]};padding:2px 6px;border-radius:10px">${r.sc?.tier||''}</span>
+    </div>`;
+  });
+
+  return `<div class="card" style="margin-bottom:18px">
+    <div class="card-title"><span class="card-title-accent"></span> Top 3 Schedulers — ${label}</div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap">${podium}</div>
+  </div>`;
+}
+
+// ─────────────────────────────────────────────
 // STATE
 // ─────────────────────────────────────────────
 let curTab='overview', curSched='all';
@@ -537,11 +624,15 @@ function jumpTo(name){
 // OVERVIEW
 // ─────────────────────────────────────────────
 function renderOverview(){
-  const s='2026-03-01',e='2026-03-31';
-  let html=`<div class="section-header"><div><div class="section-title">Team Overview — March 2026</div><div class="section-sub">Targets: 22+ appts · 75+ calls · $125+ collections/day</div></div></div>`;
+  const now=new Date();
+  const s=now.toISOString().slice(0,7)+'-01';
+  const e=ymd(now);
+  const monthLabel=now.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+  let html=`<div class="section-header"><div><div class="section-title">Team Overview — ${monthLabel}</div><div class="section-sub">Targets: 22+ appts · 75+ calls · $125+ collections/day</div></div></div>`;
   if(curSched==='all'){
-    html+=kpiRow(s,e,'March 2026 MTD');
-    html+=scorecard(s,e,'March 2026 MTD');
+    html+=kpiRow(s,e,`${monthLabel} MTD`);
+    html+=top3HTML(s,e,`${monthLabel} MTD`);
+    html+=scorecard(s,e,`${monthLabel} MTD`);
   } else {
     html+=schedHTML(curSched);
   }
@@ -585,6 +676,9 @@ function renderDailyView(){
     <div class="kpi-card amber"><div class="kpi-label">Total Collections</div><div class="kpi-value">${fd(totD)}</div><div class="kpi-target">${worked.length} schedulers worked</div></div>
   </div>`;
 
+  html+=top3HTML(null,null,pd(date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}),worked);
+  html+=leaderboardHTML(null,null,pd(date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}),worked);
+
   html+=`<div class="card"><div class="card-title"><span class="card-title-accent"></span> Individual Results — ${pd(date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</div>
   <div class="scrollable-table"><table class="data-table"><thead><tr>
     <th>Scheduler</th><th>Tier</th><th>Status</th><th>Appts</th><th>Inits</th><th>F/U</th><th>Calls</th><th>Collections</th><th>Notes</th>
@@ -622,6 +716,8 @@ function renderWTD(){
   document.getElementById('wtd-sub').textContent=label;
   let html=`<div class="info-bar">📆 Week: <strong>${label}</strong> (Mon–${effEnd===we?'Sun':'today'})</div>`;
   html+=kpiRow(ws,effEnd,'WTD');
+  html+=top3HTML(ws,effEnd,`WTD ${label}`);
+  html+=leaderboardHTML(ws,effEnd,`WTD ${label}`);
   html+=scorecard(ws,effEnd,`WTD ${label}`);
   document.getElementById('wtd-content').innerHTML=html;
 }
@@ -639,31 +735,9 @@ function renderMTD(){
   document.getElementById('mtd-sub').textContent=`${monthName} · 1st – ${pd(effEnd).toLocaleDateString('en-US',{month:'short',day:'numeric'})}`;
 
   let html=`<div class="info-bar">🗓 <strong>${monthName}</strong> Month-to-Date</div>`;
-  const isMar=(pv==='2026-03');
-  if(isMar) html+=`<div class="purple-bar-notice">✦ March 2026: baseline data used where live entries are not yet logged</div>`;
   html+=kpiRow(ms,effEnd,monthName);
-
-  // MoM trend for March
-  if(isMar){
-    let trows='';
-    NAMES.forEach(name=>{
-      const sc=SCHEDULERS[name], m=getMar(name);
-      const jan=sc.jan.a, feb=sc.feb.a, mar=m.a;
-      const diff=mar&&feb?mar-feb:null;
-      const gap=mar?mar-sc.t.a:null;
-      trows+=`<tr><td class="scheduler-name">${name}</td><td><span class="tier-pill ${tc(sc.tier)}">${sc.tier}</span></td>
-        <td>${fn(jan)}</td><td>${fn(feb)}</td>
-        <td class="${mc(mar,sc.t.a)} metric-bold">${fn(mar)}</td>
-        <td class="${diff===null?'':diff>=0?'metric-green':'metric-red'}">${diff===null?'—':diff>=0?'▲ '+fn(diff):'▼ '+fn(Math.abs(diff))}</td>
-        <td class="${gap===null?'':gap>=0?'metric-green':'metric-red'}">${gap===null?'—':gap>=0?'✓ +'+fn(gap):fn(gap)}</td>
-      </tr>`;
-    });
-    html+=`<div class="card"><div class="card-title"><span class="card-title-accent"></span> Month-over-Month — Appts/Day</div>
-    <div class="scrollable-table"><table class="data-table"><thead><tr>
-      <th>Scheduler</th><th>Tier</th><th>Jan Avg</th><th>Feb Avg</th><th>Mar MTD</th><th>MoM Change</th><th>vs Target</th>
-    </tr></thead><tbody>${trows}</tbody></table></div></div>`;
-  }
-
+  html+=top3HTML(ms,effEnd,monthName);
+  html+=leaderboardHTML(ms,effEnd,monthName);
   html+=scorecard(ms,effEnd,monthName);
   document.getElementById('mtd-content').innerHTML=html;
 }
@@ -680,34 +754,11 @@ function renderYTD(){
   document.getElementById('ytd-sub').textContent=`Jan 1 – ${pd(effEnd).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}`;
 
   let html=`<div class="info-bar">📈 <strong>${y} Year-to-Date</strong></div>`;
-  if(+y===2026){
-    html+=`<div class="purple-bar-notice">✦ 2026 YTD: Jan & Feb are historical averages (per-day); March uses live entries where available, otherwise baseline</div>`;
-
-    // Full 2026 summary table
-    let trows='';
-    NAMES.forEach(name=>{
-      const sc=SCHEDULERS[name], m=getMar(name);
-      const vals=[sc.jan.a,sc.feb.a,m.a].filter(v=>v!=null);
-      const improving=m.a>sc.feb.a&&sc.feb.a>sc.jan.a;
-      const declining=m.a<sc.feb.a&&sc.feb.a<sc.jan.a;
-      const trend=improving?'▲ Improving':declining?'▼ Declining':'◆ Mixed';
-      const tcolor=improving?'metric-green':declining?'metric-red':'metric-amber';
-      trows+=`<tr><td class="scheduler-name">${name}</td><td><span class="tier-pill ${tc(sc.tier)}">${sc.tier}</span></td>
-        <td>${fn(sc.jan.a)}</td><td>${fn(sc.feb.a)}</td>
-        <td class="${mc(m.a,sc.t.a)} metric-bold">${fn(m.a)}</td>
-        <td class="${tcolor}" style="font-size:11px;font-weight:700">${trend}</td>
-        <td class="${mc(m.d,sc.t.d)} metric-bold">${fd(m.d)}</td>
-      </tr>`;
-    });
-    html+=`<div class="card"><div class="card-title"><span class="card-title-accent"></span> 2026 Appts — Jan · Feb · Mar</div>
-    <div class="scrollable-table"><table class="data-table"><thead><tr>
-      <th>Scheduler</th><th>Tier</th><th>Jan</th><th>Feb</th><th>Mar MTD</th><th>2026 Trend</th><th>Mar Collections</th>
-    </tr></thead><tbody>${trows}</tbody></table></div></div>`;
-  }
 
   html+=kpiRow(ys,effEnd,`${y} YTD`);
+  html+=top3HTML(ys,effEnd,`${y} YTD`);
 
-  // Leaderboard
+  // Full leaderboard
   const ranked=NAMES.map(n=>({name:n,sc:SCHEDULERS[n],m:aggOrBase(n,ys,effEnd)})).filter(r=>r.m).sort((a,b)=>(b.m.a||0)-(a.m.a||0));
   const max=ranked[0]?.m?.a||1;
   html+=`<div class="card"><div class="card-title"><span class="card-title-accent"></span> YTD Leaderboard — Appts/Day</div><div style="display:grid;gap:9px">`;
@@ -771,19 +822,18 @@ function schedHTML(name){
     <div class="kpi-card blue"><div class="kpi-label">Appts/Day</div><div class="kpi-value ${mc(m.a,sc.t.a)}">${fn(m.a)}</div><div class="kpi-target">Target ${sc.t.a} · ${m.a?(sc.t.a-m.a>0?fn(sc.t.a-m.a)+' gap':'✓ Met'):'—'}</div>${pb(m.a,sc.t.a)}</div>
     <div class="kpi-card green"><div class="kpi-label">Calls/Day</div><div class="kpi-value ${mc(m.c,sc.t.c)}">${fn(m.c,0)}</div><div class="kpi-target">Target ${sc.t.c}</div>${pb(m.c,sc.t.c)}</div>
     <div class="kpi-card purple"><div class="kpi-label">Collections</div><div class="kpi-value ${mc(m.d,sc.t.d)}">${fd(m.d)}</div><div class="kpi-target">Target $${sc.t.d}</div>${pb(m.d,sc.t.d)}</div>
-    <div class="kpi-card"><div class="kpi-label">Monthly Appts</div><div style="display:flex;gap:14px;margin-top:6px">
-      <div><div style="font-size:9px;color:var(--text-light);font-weight:700">JAN</div><div style="font-size:18px;font-weight:900">${fn(sc.jan.a)}</div></div>
-      <div><div style="font-size:9px;color:var(--text-light);font-weight:700">FEB</div><div style="font-size:18px;font-weight:900">${fn(sc.feb.a)}</div></div>
-      <div><div style="font-size:9px;color:var(--blue);font-weight:700">MAR</div><div style="font-size:18px;font-weight:900;color:var(--blue)">${fn(m.a)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Period Avg Appts</div><div style="display:flex;gap:14px;margin-top:6px;align-items:flex-end">
+      <div><div style="font-size:9px;color:var(--blue);font-weight:700">AVG/DAY</div><div style="font-size:26px;font-weight:900;color:var(--blue)">${fn(m.a)}</div></div>
+      <div><div style="font-size:9px;color:var(--text-light);font-weight:700">DAYS</div><div style="font-size:18px;font-weight:900;color:var(--text-mid)">${m?m.days||0:0}</div></div>
     </div></div>
   </div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
     <div class="card">
       <div class="card-title"><span class="card-title-accent"></span> Inits vs Follow-Ups</div>
       <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
-        <div><div style="font-size:10px;color:var(--text-light);font-weight:700">INITS</div><div style="font-size:22px;font-weight:900;color:var(--blue)">${fn(m.i)}</div><div style="font-size:10px;color:var(--text-light)">Jan ${fn(sc.jan.i)} · Feb ${fn(sc.feb.i)}</div></div>
+        <div><div style="font-size:10px;color:var(--text-light);font-weight:700">INITS</div><div style="font-size:22px;font-weight:900;color:var(--blue)">${fn(m.i)}</div></div>
         <div style="font-size:18px;color:var(--border)">+</div>
-        <div><div style="font-size:10px;color:var(--text-light);font-weight:700">F/U</div><div style="font-size:22px;font-weight:900;color:var(--purple)">${fn(m.f)}</div><div style="font-size:10px;color:var(--text-light)">Jan ${fn(sc.jan.f)} · Feb ${fn(sc.feb.f)}</div></div>
+        <div><div style="font-size:10px;color:var(--text-light);font-weight:700">F/U</div><div style="font-size:22px;font-weight:900;color:var(--purple)">${fn(m.f)}</div></div>
         <div style="font-size:18px;color:var(--border)">=</div>
         <div><div style="font-size:10px;color:var(--text-light);font-weight:700">TOTAL</div><div style="font-size:22px;font-weight:900;color:var(--green)">${fn(m.a)}</div></div>
       </div>
@@ -845,25 +895,61 @@ function renderEntryView(){
   const name=document.getElementById('entry-name').value;
   const container=document.getElementById('entry-log');
   if(!name){ container.innerHTML='<div class="empty-state"><div class="empty-icon">👆</div><div class="empty-text">Select your name above</div></div>'; return; }
-  const entries=db.load().e.filter(x=>x.name===name).sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,14);
+  const entries=db.load().e.filter(x=>x.name===name).sort((a,b)=>new Date(b.date)-new Date(a.date));
   if(!entries.length){ container.innerHTML=`<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">No entries yet</div></div>`; return; }
   let html=`<div class="scrollable-table"><table class="log-table"><thead><tr>
-    <th>Date</th><th>Status</th><th>Appts</th><th>Inits</th><th>F/U</th><th>Calls</th><th>Collections</th><th>Notes</th><th></th>
+    <th>Date</th><th>Status</th><th>Appts</th><th>Inits</th><th>F/U</th><th>Calls</th><th>Collections</th><th>Notes</th><th>Edit</th><th>Del</th>
   </tr></thead><tbody>`;
   entries.forEach(e=>{
     const ds=pd(e.date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
-    html+=`<tr>
+    const isImported=e.imported?'style="opacity:0.7"':'';
+    html+=`<tr ${isImported}>
       <td style="font-weight:700">${ds}</td>
       <td><span class="tier-pill ${e.status==='worked'?'tier-worked':'tier-pto'}">${e.status==='worked'?'Worked':'PTO'}</span></td>
       <td>${e.status==='worked'?fn(+e.appts):'—'}</td><td>${e.status==='worked'?fn(+e.inits):'—'}</td>
       <td>${e.status==='worked'?fn(+e.fu):'—'}</td><td>${e.status==='worked'?fn(+e.calls,0):'—'}</td>
       <td>${e.status==='worked'?fd(+e.collections):'—'}</td>
-      <td style="color:var(--text-light);font-size:11px">${e.notes||''}</td>
+      <td style="color:var(--text-light);font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.notes||''}</td>
+      <td><button class="edit-btn" onclick="loadEntryForEdit('${e.id}')" title="Edit">✏️</button></td>
       <td><button class="delete-btn" onclick="delEntry('${e.id}');renderEntryView()">✕</button></td>
     </tr>`;
   });
-  html+=`</tbody></table></div>`;
+  html+=`</tbody></table></div><div style="font-size:11px;color:var(--text-light);margin-top:8px;font-style:italic">Click ✏️ to load an entry into the form above for editing. Dimmed rows are imported historical data.</div>`;
   container.innerHTML=html;
+}
+
+function loadEntryForEdit(id){
+  const d=db.load();
+  const e=d.e.find(x=>x.id===id);
+  if(!e) return;
+  // Set editing state
+  document.getElementById('entry-name').value=e.name;
+  document.getElementById('entry-date').value=e.date;
+  document.getElementById('entry-status').value=e.status||'worked';
+  document.getElementById('entry-appts').value=e.appts||'';
+  document.getElementById('entry-inits').value=e.inits||'';
+  document.getElementById('entry-fu').value=e.fu||'';
+  document.getElementById('entry-calls').value=e.calls||'';
+  document.getElementById('entry-collections').value=e.collections||'';
+  document.getElementById('entry-notes').value=e.notes||'';
+  // Store the editing ID on the save button
+  document.getElementById('entry-save-btn').dataset.editId=id;
+  document.getElementById('entry-save-btn').textContent='Update Entry';
+  document.getElementById('entry-save-btn').style.background='var(--amber)';
+  // Show cancel edit button
+  document.getElementById('entry-cancel-edit').style.display='inline-block';
+  // Scroll to form
+  document.getElementById('entry-save-btn').scrollIntoView({behavior:'smooth',block:'center'});
+  toast('Entry loaded for editing — make changes and click Update Entry','');
+  renderEntryView();
+}
+
+function cancelEdit(){
+  document.getElementById('entry-save-btn').dataset.editId='';
+  document.getElementById('entry-save-btn').textContent='Save Entry';
+  document.getElementById('entry-save-btn').style.background='';
+  document.getElementById('entry-cancel-edit').style.display='none';
+  clearForm(document.getElementById('entry-name').value);
 }
 
 document.getElementById('entry-name').addEventListener('change',function(){ renderEntryView(); });
@@ -875,20 +961,44 @@ function submitEntry(){
   if(!name){ toast('Please select your name','error'); return; }
   if(!date){ toast('Please select a date','error'); return; }
   const d=db.load();
-  if(d.e.find(x=>x.name===name&&x.date===date)){ toast('Entry for this date already exists','error'); return; }
-  d.e.push({
-    id:Date.now().toString(),name,date,status,
-    appts:document.getElementById('entry-appts').value||0,
-    inits:document.getElementById('entry-inits').value||0,
-    fu:document.getElementById('entry-fu').value||0,
-    calls:document.getElementById('entry-calls').value||0,
-    collections:document.getElementById('entry-collections').value||0,
-    notes:document.getElementById('entry-notes').value.trim(),
-    timestamp:new Date().toISOString()
-  });
-  db.save(d);
-  toast('Entry saved!');
-  clearForm(name);
+  const editId=document.getElementById('entry-save-btn').dataset.editId;
+
+  if(editId){
+    // EDIT MODE — update existing entry
+    const idx=d.e.findIndex(x=>x.id===editId);
+    if(idx===-1){ toast('Entry not found','error'); return; }
+    d.e[idx]={
+      ...d.e[idx],
+      name, date, status,
+      appts:document.getElementById('entry-appts').value||0,
+      inits:document.getElementById('entry-inits').value||0,
+      fu:document.getElementById('entry-fu').value||0,
+      calls:document.getElementById('entry-calls').value||0,
+      collections:document.getElementById('entry-collections').value||0,
+      notes:document.getElementById('entry-notes').value.trim(),
+      imported:false,
+      timestamp:new Date().toISOString()
+    };
+    db.save(d);
+    toast('Entry updated! ✓');
+    cancelEdit();
+  } else {
+    // NEW ENTRY MODE
+    if(d.e.find(x=>x.name===name&&x.date===date)){ toast('Entry for this date already exists — click ✏️ to edit it','error'); return; }
+    d.e.push({
+      id:Date.now().toString(),name,date,status,
+      appts:document.getElementById('entry-appts').value||0,
+      inits:document.getElementById('entry-inits').value||0,
+      fu:document.getElementById('entry-fu').value||0,
+      calls:document.getElementById('entry-calls').value||0,
+      collections:document.getElementById('entry-collections').value||0,
+      notes:document.getElementById('entry-notes').value.trim(),
+      timestamp:new Date().toISOString()
+    });
+    db.save(d);
+    toast('Entry saved!');
+    clearForm(name);
+  }
   renderEntryView();
 }
 
@@ -898,17 +1008,6 @@ function clearForm(keepName){
   document.getElementById('entry-date').valueAsDate=new Date();
 }
 
-// ─────────────────────────────────────────────
-// SEED — March 2026 Daily Tracker import
-// ─────────────────────────────────────────────
-(function seedMarch2026(){
-  const K='ally_psych_v3';
-  let cur; try{cur=JSON.parse(localStorage.getItem(K))||{e:[],n:{}};}catch{cur={e:[],n:{}};}
-  if(cur._seeded==='march2026_v1') return;
-  const seed={"e":[{"id":"hist_1","date":"2026-03-02","name":"Katie Youngson","status":"worked","inits":7.0,"fu":14.0,"appts":21.0,"collections":0.0,"calls":87.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_2","date":"2026-03-02","name":"Kristie Brooks","status":"worked","inits":12.0,"fu":18.0,"appts":30.0,"collections":0.0,"calls":58.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_3","date":"2026-03-02","name":"Lauren Waddell","status":"worked","inits":17.0,"fu":11.0,"appts":28.0,"collections":25.0,"calls":63.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_4","date":"2026-03-02","name":"Shana Robinson","status":"worked","inits":11.0,"fu":15.0,"appts":26.0,"collections":90.0,"calls":85.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_5","date":"2026-03-02","name":"Peggy Bunch","status":"worked","inits":6.0,"fu":15.0,"appts":21.0,"collections":350.0,"calls":69.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_6","date":"2026-03-02","name":"Jessica Marousek","status":"worked","inits":8.0,"fu":17.0,"appts":25.0,"collections":700.0,"calls":99.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_7","date":"2026-03-02","name":"Florence Barnes","status":"worked","inits":7.0,"fu":10.0,"appts":17.0,"collections":380.0,"calls":56.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_8","date":"2026-03-02","name":"Ashley Thorn","status":"worked","inits":8.0,"fu":9.0,"appts":17.0,"collections":20.0,"calls":67.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_9","date":"2026-03-02","name":"Natyka Alexander","status":"worked","inits":3.0,"fu":15.0,"appts":18.0,"collections":65.0,"calls":83.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_10","date":"2026-03-03","name":"Katie Youngson","status":"worked","inits":9.0,"fu":14.0,"appts":23.0,"collections":195.4,"calls":83.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_11","date":"2026-03-03","name":"Kristie Brooks","status":"worked","inits":11.0,"fu":12.0,"appts":23.0,"collections":0.0,"calls":78.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_12","date":"2026-03-03","name":"Lauren Waddell","status":"worked","inits":11.0,"fu":12.0,"appts":23.0,"collections":160.0,"calls":68.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_13","date":"2026-03-03","name":"Shana Robinson","status":"worked","inits":9.0,"fu":12.0,"appts":21.0,"collections":60.0,"calls":69.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_14","date":"2026-03-03","name":"Peggy Bunch","status":"worked","inits":8.0,"fu":18.0,"appts":26.0,"collections":160.0,"calls":67.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_15","date":"2026-03-03","name":"Jessica Marousek","status":"worked","inits":4.0,"fu":14.0,"appts":18.0,"collections":0.0,"calls":113.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_16","date":"2026-03-03","name":"Florence Barnes","status":"worked","inits":9.0,"fu":6.0,"appts":15.0,"collections":10.0,"calls":51.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_17","date":"2026-03-03","name":"Ashley Thorn","status":"worked","inits":7.0,"fu":15.0,"appts":22.0,"collections":35.0,"calls":75.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_18","date":"2026-03-03","name":"Natyka Alexander","status":"worked","inits":3.0,"fu":6.0,"appts":9.0,"collections":50.0,"calls":24.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_19","date":"2026-03-04","name":"Katie Youngson","status":"worked","inits":9.0,"fu":7.0,"appts":16.0,"collections":15.0,"calls":53.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_20","date":"2026-03-04","name":"Kristie Brooks","status":"worked","inits":13.0,"fu":16.0,"appts":29.0,"collections":0.0,"calls":75.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_21","date":"2026-03-04","name":"Lauren Waddell","status":"worked","inits":9.0,"fu":14.0,"appts":23.0,"collections":108.0,"calls":75.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_22","date":"2026-03-04","name":"Shana Robinson","status":"worked","inits":9.0,"fu":14.0,"appts":23.0,"collections":370.0,"calls":79.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_23","date":"2026-03-04","name":"Peggy Bunch","status":"worked","inits":3.0,"fu":18.0,"appts":21.0,"collections":195.0,"calls":103.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_24","date":"2026-03-04","name":"Jessica Marousek","status":"pto","inits":0,"fu":0,"appts":0.0,"collections":0,"calls":0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_25","date":"2026-03-04","name":"Florence Barnes","status":"worked","inits":7.0,"fu":9.0,"appts":16.0,"collections":70.0,"calls":51.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_26","date":"2026-03-04","name":"Ashley Thorn","status":"worked","inits":9.0,"fu":9.0,"appts":18.0,"collections":0.0,"calls":72.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_27","date":"2026-03-04","name":"Natyka Alexander","status":"worked","inits":5.0,"fu":5.0,"appts":10.0,"collections":0.0,"calls":44.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_28","date":"2026-03-05","name":"Katie Youngson","status":"worked","inits":9.0,"fu":6.0,"appts":15.0,"collections":0,"calls":91.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_29","date":"2026-03-05","name":"Kristie Brooks","status":"worked","inits":8.0,"fu":12.0,"appts":20.0,"collections":200.0,"calls":74.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_30","date":"2026-03-05","name":"Lauren Waddell","status":"worked","inits":16.0,"fu":7.0,"appts":23.0,"collections":180.0,"calls":71.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_31","date":"2026-03-05","name":"Shana Robinson","status":"worked","inits":12.0,"fu":9.0,"appts":21.0,"collections":45.0,"calls":78.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_32","date":"2026-03-05","name":"Peggy Bunch","status":"worked","inits":3.0,"fu":13.0,"appts":16.0,"collections":215.0,"calls":62.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_33","date":"2026-03-05","name":"Jessica Marousek","status":"pto","inits":0,"fu":0,"appts":0.0,"collections":0,"calls":0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_34","date":"2026-03-05","name":"Florence Barnes","status":"worked","inits":9.0,"fu":11.0,"appts":20.0,"collections":0,"calls":64.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_35","date":"2026-03-05","name":"Ashley Thorn","status":"worked","inits":5.0,"fu":10.0,"appts":15.0,"collections":0,"calls":69.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_36","date":"2026-03-05","name":"Natyka Alexander","status":"worked","inits":7.0,"fu":14.0,"appts":21.0,"collections":100.0,"calls":89.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_37","date":"2026-03-06","name":"Katie Youngson","status":"worked","inits":3.0,"fu":11.0,"appts":14.0,"collections":50.0,"calls":47.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_38","date":"2026-03-06","name":"Kristie Brooks","status":"worked","inits":15.0,"fu":15.0,"appts":30.0,"collections":0.0,"calls":81.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_39","date":"2026-03-06","name":"Lauren Waddell","status":"worked","inits":15.0,"fu":19.0,"appts":34.0,"collections":100.0,"calls":70.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_40","date":"2026-03-06","name":"Shana Robinson","status":"worked","inits":8.0,"fu":13.0,"appts":21.0,"collections":115.0,"calls":92.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_41","date":"2026-03-06","name":"Peggy Bunch","status":"pto","inits":0,"fu":0,"appts":0.0,"collections":0.0,"calls":0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_42","date":"2026-03-06","name":"Jessica Marousek","status":"pto","inits":0,"fu":0,"appts":0.0,"collections":0.0,"calls":0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_43","date":"2026-03-06","name":"Florence Barnes","status":"worked","inits":5.0,"fu":5.0,"appts":10.0,"collections":45.0,"calls":29.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_44","date":"2026-03-06","name":"Ashley Thorn","status":"worked","inits":7.0,"fu":7.0,"appts":14.0,"collections":30.0,"calls":62.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_45","date":"2026-03-06","name":"Natyka Alexander","status":"worked","inits":6.0,"fu":0,"appts":6.0,"collections":200.0,"calls":28.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_46","date":"2026-03-09","name":"Katie Youngson","status":"worked","inits":12.0,"fu":19.0,"appts":31.0,"collections":60.0,"calls":72.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_47","date":"2026-03-09","name":"Kristie Brooks","status":"worked","inits":11.0,"fu":20.0,"appts":31.0,"collections":25.0,"calls":58.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_48","date":"2026-03-09","name":"Lauren Waddell","status":"worked","inits":13.0,"fu":16.0,"appts":29.0,"collections":160.0,"calls":69.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_49","date":"2026-03-09","name":"Shana Robinson","status":"worked","inits":10.0,"fu":9.0,"appts":19.0,"collections":125.0,"calls":95.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_50","date":"2026-03-09","name":"Peggy Bunch","status":"worked","inits":3.0,"fu":17.0,"appts":20.0,"collections":305.0,"calls":68.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_51","date":"2026-03-09","name":"Jessica Marousek","status":"worked","inits":4.0,"fu":12.0,"appts":16.0,"collections":73.0,"calls":85.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_52","date":"2026-03-09","name":"Florence Barnes","status":"worked","inits":8.0,"fu":11.0,"appts":19.0,"collections":80.0,"calls":95.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_53","date":"2026-03-09","name":"Ashley Thorn","status":"worked","inits":10.0,"fu":8.0,"appts":18.0,"collections":276.0,"calls":67.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_54","date":"2026-03-09","name":"Natyka Alexander","status":"worked","inits":3.0,"fu":13.0,"appts":16.0,"collections":315.0,"calls":92.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_55","date":"2026-03-10","name":"Katie Youngson","status":"worked","inits":6.0,"fu":7.0,"appts":13.0,"collections":0.0,"calls":73.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_56","date":"2026-03-10","name":"Kristie Brooks","status":"worked","inits":14.0,"fu":11.0,"appts":25.0,"collections":0.0,"calls":63.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_57","date":"2026-03-10","name":"Lauren Waddell","status":"worked","inits":11.0,"fu":16.0,"appts":27.0,"collections":225.0,"calls":60.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_58","date":"2026-03-10","name":"Shana Robinson","status":"worked","inits":6.0,"fu":12.0,"appts":18.0,"collections":48.0,"calls":73.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_59","date":"2026-03-10","name":"Peggy Bunch","status":"worked","inits":5.0,"fu":2.0,"appts":7.0,"collections":320.0,"calls":61.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_60","date":"2026-03-10","name":"Jessica Marousek","status":"worked","inits":2.0,"fu":9.0,"appts":11.0,"collections":50.0,"calls":91.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_61","date":"2026-03-10","name":"Florence Barnes","status":"worked","inits":5.0,"fu":7.0,"appts":12.0,"collections":75.0,"calls":51.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_62","date":"2026-03-10","name":"Ashley Thorn","status":"worked","inits":3.0,"fu":10.0,"appts":13.0,"collections":60.0,"calls":76.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_63","date":"2026-03-10","name":"Natyka Alexander","status":"worked","inits":7.0,"fu":11.0,"appts":18.0,"collections":113.0,"calls":72.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_64","date":"2026-03-11","name":"Katie Youngson","status":"worked","inits":7.0,"fu":15.0,"appts":22.0,"collections":75.0,"calls":89.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_65","date":"2026-03-11","name":"Kristie Brooks","status":"worked","inits":9.0,"fu":18.0,"appts":27.0,"collections":50.0,"calls":93.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_66","date":"2026-03-11","name":"Lauren Waddell","status":"worked","inits":9.0,"fu":14.0,"appts":23.0,"collections":90.0,"calls":58.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_67","date":"2026-03-11","name":"Shana Robinson","status":"worked","inits":5.0,"fu":15.0,"appts":20.0,"collections":150.0,"calls":106.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_68","date":"2026-03-11","name":"Peggy Bunch","status":"worked","inits":8.0,"fu":9.0,"appts":17.0,"collections":0.0,"calls":73.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_69","date":"2026-03-11","name":"Jessica Marousek","status":"worked","inits":6.0,"fu":19.0,"appts":25.0,"collections":0.0,"calls":110.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_70","date":"2026-03-11","name":"Florence Barnes","status":"worked","inits":1.0,"fu":12.0,"appts":13.0,"collections":40.0,"calls":49.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_71","date":"2026-03-11","name":"Ashley Thorn","status":"worked","inits":7.0,"fu":8.0,"appts":15.0,"collections":138.0,"calls":88.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_72","date":"2026-03-11","name":"Natyka Alexander","status":"worked","inits":12.0,"fu":9.0,"appts":21.0,"collections":40.0,"calls":63.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_73","date":"2026-03-12","name":"Katie Youngson","status":"worked","inits":7.0,"fu":15.0,"appts":22.0,"collections":260.0,"calls":89.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_74","date":"2026-03-12","name":"Kristie Brooks","status":"worked","inits":9.0,"fu":18.0,"appts":27.0,"collections":0.0,"calls":93.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_75","date":"2026-03-12","name":"Lauren Waddell","status":"worked","inits":9.0,"fu":14.0,"appts":23.0,"collections":20.0,"calls":58.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_76","date":"2026-03-12","name":"Shana Robinson","status":"worked","inits":5.0,"fu":15.0,"appts":20.0,"collections":0.0,"calls":106.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_77","date":"2026-03-12","name":"Peggy Bunch","status":"worked","inits":8.0,"fu":9.0,"appts":17.0,"collections":68.0,"calls":73.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_78","date":"2026-03-12","name":"Jessica Marousek","status":"worked","inits":6.0,"fu":19.0,"appts":25.0,"collections":270.0,"calls":110.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_79","date":"2026-03-12","name":"Florence Barnes","status":"worked","inits":1.0,"fu":12.0,"appts":13.0,"collections":0.0,"calls":49.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_80","date":"2026-03-12","name":"Ashley Thorn","status":"worked","inits":7.0,"fu":8.0,"appts":15.0,"collections":0.0,"calls":88.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_81","date":"2026-03-12","name":"Natyka Alexander","status":"worked","inits":12.0,"fu":9.0,"appts":21.0,"collections":0.0,"calls":63.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_82","date":"2026-03-13","name":"Katie Youngson","status":"worked","inits":8.0,"fu":4.0,"appts":12.0,"collections":0.0,"calls":64.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_83","date":"2026-03-13","name":"Kristie Brooks","status":"worked","inits":7.0,"fu":9.0,"appts":16.0,"collections":125.0,"calls":70.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_84","date":"2026-03-13","name":"Lauren Waddell","status":"worked","inits":4.0,"fu":12.0,"appts":16.0,"collections":125.0,"calls":114.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_85","date":"2026-03-13","name":"Shana Robinson","status":"worked","inits":1.0,"fu":8.0,"appts":9.0,"collections":0.0,"calls":84.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_86","date":"2026-03-13","name":"Peggy Bunch","status":"worked","inits":9.0,"fu":6.0,"appts":15.0,"collections":91.5,"calls":71.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_87","date":"2026-03-13","name":"Jessica Marousek","status":"worked","inits":9.0,"fu":5.0,"appts":14.0,"collections":0.0,"calls":65.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_88","date":"2026-03-13","name":"Florence Barnes","status":"worked","inits":4.0,"fu":4.0,"appts":8.0,"collections":0.0,"calls":46.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_89","date":"2026-03-13","name":"Ashley Thorn","status":"worked","inits":3.0,"fu":11.0,"appts":14.0,"collections":0.0,"calls":70.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_90","date":"2026-03-13","name":"Natyka Alexander","status":"worked","inits":5.0,"fu":2.0,"appts":7.0,"collections":0.0,"calls":33.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_91","date":"2026-03-16","name":"Katie Youngson","status":"worked","inits":6.0,"fu":13.0,"appts":19.0,"collections":320.0,"calls":115.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_92","date":"2026-03-16","name":"Kristie Brooks","status":"worked","inits":9.0,"fu":17.0,"appts":26.0,"collections":100.0,"calls":77.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_93","date":"2026-03-16","name":"Lauren Waddell","status":"worked","inits":8.0,"fu":14.0,"appts":22.0,"collections":83.0,"calls":75.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_94","date":"2026-03-16","name":"Shana Robinson","status":"worked","inits":7.0,"fu":13.0,"appts":20.0,"collections":120.0,"calls":96.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_95","date":"2026-03-16","name":"Peggy Bunch","status":"worked","inits":8.0,"fu":14.0,"appts":22.0,"collections":31.0,"calls":83.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_96","date":"2026-03-16","name":"Jessica Marousek","status":"worked","inits":6.0,"fu":16.0,"appts":22.0,"collections":0.0,"calls":108.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_97","date":"2026-03-16","name":"Florence Barnes","status":"worked","inits":7.0,"fu":7.0,"appts":14.0,"collections":25.0,"calls":52.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_98","date":"2026-03-16","name":"Ashley Thorn","status":"worked","inits":9.0,"fu":8.0,"appts":17.0,"collections":100.0,"calls":62.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_99","date":"2026-03-16","name":"Natyka Alexander","status":"worked","inits":9.0,"fu":11.0,"appts":20.0,"collections":186.8,"calls":77.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_100","date":"2026-03-17","name":"Katie Youngson","status":"worked","inits":11.0,"fu":15.0,"appts":26.0,"collections":10.0,"calls":81.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_101","date":"2026-03-17","name":"Kristie Brooks","status":"worked","inits":8.0,"fu":13.0,"appts":21.0,"collections":85.0,"calls":91.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_102","date":"2026-03-17","name":"Lauren Waddell","status":"worked","inits":14.0,"fu":10.0,"appts":24.0,"collections":50.0,"calls":77.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_103","date":"2026-03-17","name":"Shana Robinson","status":"worked","inits":7.0,"fu":10.0,"appts":17.0,"collections":45.0,"calls":90.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_104","date":"2026-03-17","name":"Peggy Bunch","status":"worked","inits":9.0,"fu":12.0,"appts":21.0,"collections":375.0,"calls":77.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_105","date":"2026-03-17","name":"Jessica Marousek","status":"worked","inits":2.0,"fu":21.0,"appts":23.0,"collections":0.0,"calls":110.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_106","date":"2026-03-17","name":"Florence Barnes","status":"worked","inits":3.0,"fu":5.0,"appts":8.0,"collections":30.0,"calls":72.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_107","date":"2026-03-17","name":"Ashley Thorn","status":"worked","inits":10.0,"fu":11.0,"appts":21.0,"collections":0.0,"calls":62.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_108","date":"2026-03-17","name":"Natyka Alexander","status":"worked","inits":12.0,"fu":9.0,"appts":21.0,"collections":0.0,"calls":108.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_109","date":"2026-03-18","name":"Katie Youngson","status":"worked","inits":13.0,"fu":11.0,"appts":24.0,"collections":275.0,"calls":73.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_110","date":"2026-03-18","name":"Kristie Brooks","status":"worked","inits":9.0,"fu":5.0,"appts":14.0,"collections":20.0,"calls":66.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_111","date":"2026-03-18","name":"Lauren Waddell","status":"worked","inits":6.0,"fu":10.0,"appts":16.0,"collections":0.0,"calls":110.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_112","date":"2026-03-18","name":"Shana Robinson","status":"worked","inits":6.0,"fu":11.0,"appts":17.0,"collections":0.0,"calls":81.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_113","date":"2026-03-18","name":"Peggy Bunch","status":"worked","inits":11.0,"fu":18.0,"appts":29.0,"collections":125.0,"calls":59.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_114","date":"2026-03-18","name":"Jessica Marousek","status":"worked","inits":4.0,"fu":16.0,"appts":20.0,"collections":45.0,"calls":111.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_115","date":"2026-03-18","name":"Florence Barnes","status":"worked","inits":0.0,"fu":0.0,"appts":0.0,"collections":0.0,"calls":0.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_116","date":"2026-03-18","name":"Ashley Thorn","status":"worked","inits":6.0,"fu":7.0,"appts":13.0,"collections":286.0,"calls":58.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_117","date":"2026-03-18","name":"Natyka Alexander","status":"worked","inits":7.0,"fu":13.0,"appts":20.0,"collections":140.0,"calls":83.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_118","date":"2026-03-19","name":"Katie Youngson","status":"worked","inits":14.0,"fu":7.0,"appts":21.0,"collections":0.0,"calls":64.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_119","date":"2026-03-19","name":"Kristie Brooks","status":"worked","inits":0.0,"fu":0.0,"appts":0.0,"collections":0.0,"calls":0.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_120","date":"2026-03-19","name":"Lauren Waddell","status":"worked","inits":11.0,"fu":14.0,"appts":25.0,"collections":160.0,"calls":66.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_121","date":"2026-03-19","name":"Shana Robinson","status":"worked","inits":6.0,"fu":10.0,"appts":16.0,"collections":40.0,"calls":72.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_122","date":"2026-03-19","name":"Peggy Bunch","status":"worked","inits":9.0,"fu":18.0,"appts":27.0,"collections":0.0,"calls":76.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_123","date":"2026-03-19","name":"Jessica Marousek","status":"worked","inits":8.0,"fu":16.0,"appts":24.0,"collections":35.0,"calls":98.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_124","date":"2026-03-19","name":"Florence Barnes","status":"worked","inits":5.0,"fu":10.0,"appts":15.0,"collections":65.0,"calls":65.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_125","date":"2026-03-19","name":"Ashley Thorn","status":"worked","inits":6.0,"fu":9.0,"appts":15.0,"collections":0.0,"calls":60.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_126","date":"2026-03-19","name":"Natyka Alexander","status":"worked","inits":6.0,"fu":9.0,"appts":15.0,"collections":0.0,"calls":74.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_127","date":"2026-03-20","name":"Katie Youngson","status":"worked","inits":12.0,"fu":11.0,"appts":23.0,"collections":104.16,"calls":67.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_128","date":"2026-03-20","name":"Kristie Brooks","status":"worked","inits":0.0,"fu":0.0,"appts":0.0,"collections":0.0,"calls":0.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_129","date":"2026-03-20","name":"Lauren Waddell","status":"worked","inits":1.0,"fu":8.0,"appts":9.0,"collections":100.0,"calls":34.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_130","date":"2026-03-20","name":"Shana Robinson","status":"worked","inits":10.0,"fu":15.0,"appts":25.0,"collections":225.0,"calls":67.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_131","date":"2026-03-20","name":"Peggy Bunch","status":"worked","inits":6.0,"fu":11.0,"appts":17.0,"collections":125.0,"calls":78.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_132","date":"2026-03-20","name":"Jessica Marousek","status":"worked","inits":7.0,"fu":24.0,"appts":31.0,"collections":40.0,"calls":115.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_133","date":"2026-03-20","name":"Florence Barnes","status":"worked","inits":5.0,"fu":10.0,"appts":15.0,"collections":190.0,"calls":65.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_134","date":"2026-03-20","name":"Ashley Thorn","status":"worked","inits":5.0,"fu":5.0,"appts":10.0,"collections":0.0,"calls":56.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_135","date":"2026-03-20","name":"Natyka Alexander","status":"worked","inits":5.0,"fu":0.0,"appts":5.0,"collections":0.0,"calls":40.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_136","date":"2026-03-23","name":"Katie Youngson","status":"worked","inits":14.0,"fu":12.0,"appts":26.0,"collections":167.0,"calls":95.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_137","date":"2026-03-23","name":"Kristie Brooks","status":"worked","inits":15.0,"fu":10.0,"appts":25.0,"collections":50.0,"calls":77.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_138","date":"2026-03-23","name":"Lauren Waddell","status":"worked","inits":11.0,"fu":8.0,"appts":19.0,"collections":20.0,"calls":74.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_139","date":"2026-03-23","name":"Shana Robinson","status":"worked","inits":9.0,"fu":9.0,"appts":18.0,"collections":76.0,"calls":79.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_140","date":"2026-03-23","name":"Peggy Bunch","status":"worked","inits":6.0,"fu":17.0,"appts":23.0,"collections":145.0,"calls":101.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_141","date":"2026-03-23","name":"Jessica Marousek","status":"worked","inits":6.0,"fu":18.0,"appts":24.0,"collections":10.0,"calls":95.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_142","date":"2026-03-23","name":"Florence Barnes","status":"worked","inits":6.0,"fu":10.0,"appts":16.0,"collections":155.0,"calls":63.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_143","date":"2026-03-23","name":"Ashley Thorn","status":"worked","inits":12.0,"fu":7.0,"appts":19.0,"collections":100.0,"calls":70.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_144","date":"2026-03-23","name":"Natyka Alexander","status":"worked","inits":10.0,"fu":11.0,"appts":21.0,"collections":30.0,"calls":74.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_145","date":"2026-03-24","name":"Katie Youngson","status":"worked","inits":12.0,"fu":10.0,"appts":22.0,"collections":19.0,"calls":99.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_146","date":"2026-03-24","name":"Kristie Brooks","status":"worked","inits":7.0,"fu":21.0,"appts":28.0,"collections":25.0,"calls":74.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_147","date":"2026-03-24","name":"Lauren Waddell","status":"worked","inits":6.0,"fu":8.0,"appts":14.0,"collections":0.0,"calls":70.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_148","date":"2026-03-24","name":"Shana Robinson","status":"worked","inits":8.0,"fu":4.0,"appts":12.0,"collections":165.0,"calls":73.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_149","date":"2026-03-24","name":"Peggy Bunch","status":"worked","inits":5.0,"fu":8.0,"appts":13.0,"collections":50.0,"calls":97.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_150","date":"2026-03-24","name":"Jessica Marousek","status":"worked","inits":3.0,"fu":22.0,"appts":25.0,"collections":150.0,"calls":108.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_151","date":"2026-03-24","name":"Florence Barnes","status":"worked","inits":7.0,"fu":13.0,"appts":20.0,"collections":165.0,"calls":63.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_152","date":"2026-03-24","name":"Ashley Thorn","status":"worked","inits":3.0,"fu":14.0,"appts":17.0,"collections":15.0,"calls":63.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_153","date":"2026-03-24","name":"Natyka Alexander","status":"worked","inits":10.0,"fu":9.0,"appts":19.0,"collections":600.0,"calls":74.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_154","date":"2026-03-25","name":"Katie Youngson","status":"worked","inits":6.0,"fu":9.0,"appts":15.0,"collections":0.0,"calls":72.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_155","date":"2026-03-25","name":"Kristie Brooks","status":"worked","inits":10.0,"fu":11.0,"appts":21.0,"collections":0.0,"calls":68.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_156","date":"2026-03-25","name":"Lauren Waddell","status":"worked","inits":8.0,"fu":8.0,"appts":16.0,"collections":95.0,"calls":73.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_157","date":"2026-03-25","name":"Shana Robinson","status":"worked","inits":8.0,"fu":10.0,"appts":18.0,"collections":30.0,"calls":83.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_158","date":"2026-03-25","name":"Peggy Bunch","status":"worked","inits":9.0,"fu":16.0,"appts":25.0,"collections":60.0,"calls":71.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_159","date":"2026-03-25","name":"Jessica Marousek","status":"worked","inits":7.0,"fu":6.0,"appts":13.0,"collections":50.0,"calls":110.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_160","date":"2026-03-25","name":"Florence Barnes","status":"worked","inits":8.0,"fu":3.0,"appts":11.0,"collections":10.0,"calls":67.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_161","date":"2026-03-25","name":"Ashley Thorn","status":"worked","inits":3.0,"fu":11.0,"appts":14.0,"collections":200.0,"calls":66.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_162","date":"2026-03-25","name":"Natyka Alexander","status":"worked","inits":6.0,"fu":13.0,"appts":19.0,"collections":125.0,"calls":94.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_163","date":"2026-03-26","name":"Katie Youngson","status":"worked","inits":10.0,"fu":8.0,"appts":18.0,"collections":0.0,"calls":79.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_164","date":"2026-03-26","name":"Kristie Brooks","status":"worked","inits":6.0,"fu":8.0,"appts":14.0,"collections":45.0,"calls":84.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_165","date":"2026-03-26","name":"Lauren Waddell","status":"worked","inits":13.0,"fu":6.0,"appts":19.0,"collections":5.0,"calls":77.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_166","date":"2026-03-26","name":"Shana Robinson","status":"worked","inits":2.0,"fu":8.0,"appts":10.0,"collections":50.0,"calls":47.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_167","date":"2026-03-26","name":"Peggy Bunch","status":"worked","inits":6.0,"fu":11.0,"appts":17.0,"collections":150.0,"calls":93.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_168","date":"2026-03-26","name":"Jessica Marousek","status":"worked","inits":8.0,"fu":10.0,"appts":18.0,"collections":0.0,"calls":99.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_169","date":"2026-03-26","name":"Florence Barnes","status":"worked","inits":3.0,"fu":5.0,"appts":8.0,"collections":100.0,"calls":73.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_170","date":"2026-03-26","name":"Ashley Thorn","status":"worked","inits":5.0,"fu":7.0,"appts":12.0,"collections":100.0,"calls":66.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_171","date":"2026-03-26","name":"Natyka Alexander","status":"worked","inits":5.0,"fu":14.0,"appts":19.0,"collections":245.0,"calls":64.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_172","date":"2026-03-27","name":"Katie Youngson","status":"worked","inits":2.0,"fu":5.0,"appts":7.0,"collections":0.0,"calls":52.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_173","date":"2026-03-27","name":"Kristie Brooks","status":"worked","inits":11.0,"fu":12.0,"appts":23.0,"collections":125.0,"calls":79.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_174","date":"2026-03-27","name":"Lauren Waddell","status":"worked","inits":8.0,"fu":7.0,"appts":15.0,"collections":0.0,"calls":88.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_175","date":"2026-03-27","name":"Shana Robinson","status":"worked","inits":0.0,"fu":0.0,"appts":0.0,"collections":0.0,"calls":0.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_176","date":"2026-03-27","name":"Peggy Bunch","status":"worked","inits":5.0,"fu":8.0,"appts":13.0,"collections":270.0,"calls":102.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_177","date":"2026-03-27","name":"Jessica Marousek","status":"worked","inits":7.0,"fu":16.0,"appts":23.0,"collections":20.0,"calls":103.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_178","date":"2026-03-27","name":"Florence Barnes","status":"worked","inits":7.0,"fu":12.0,"appts":19.0,"collections":40.0,"calls":63.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_179","date":"2026-03-27","name":"Ashley Thorn","status":"worked","inits":4.0,"fu":5.0,"appts":9.0,"collections":45.0,"calls":72.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true},{"id":"hist_180","date":"2026-03-27","name":"Natyka Alexander","status":"worked","inits":3.0,"fu":4.0,"appts":7.0,"collections":0.0,"calls":28.0,"notes":"","timestamp":"2026-03-29T00:00:00.000Z","imported":true}],"n":{}};
-  const manual=cur.e.filter(x=>!x.imported);
-  localStorage.setItem(K,JSON.stringify({e:[...seed.e,...manual],n:Object.assign({},cur.n),_seeded:'march2026_v1'}));
-})();
 
 // ─────────────────────────────────────────────
 // INIT
