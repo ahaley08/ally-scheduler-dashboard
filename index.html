@@ -269,9 +269,17 @@
     <div id="panel-scheduler" class="view-panel">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
         <label style="font-size:11px;font-weight:700;color:var(--text-mid);white-space:nowrap;">View Scheduler:</label>
-        <select class="form-input form-select" id="sched-select-dropdown" style="max-width:240px;font-size:13px;" onchange="onSchedSelectChange(this.value)">
+        <select class="form-input form-select" id="sched-select-dropdown" style="max-width:220px;font-size:13px;" onchange="onSchedSelectChange(this.value)">
           <option value="">— Select a scheduler —</option>
         </select>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+          <label style="font-size:11px;font-weight:700;color:var(--text-mid);white-space:nowrap;">From:</label>
+          <input type="date" class="form-input" id="sched-date-start" style="max-width:150px;">
+          <label style="font-size:11px;font-weight:700;color:var(--text-mid);white-space:nowrap;">To:</label>
+          <input type="date" class="form-input" id="sched-date-end" style="max-width:150px;">
+          <button class="btn btn-primary btn-sm" onclick="applySchedDateRange()">Apply</button>
+          <button class="btn btn-secondary btn-sm" onclick="resetSchedDateRange()">All Time</button>
+        </div>
       </div>
       <div id="scheduler-content"></div>
     </div>
@@ -643,9 +651,11 @@ function renderSchedPanelDropdown(){
 function onSchedSelectChange(name){
   if(!name) return;
   curSched=name;
+  const s=document.getElementById('sched-date-start').value;
+  const e=document.getElementById('sched-date-end').value;
   renderSchedPanelDropdown();
   renderSidebar();
-  renderSched(name);
+  renderSched(name, s||undefined, e||undefined);
 }
 
 function renderSchedDropdown(){ renderSidebar(); renderSchedPanelDropdown(); } // keep alias
@@ -668,8 +678,22 @@ function switchTab(tab){
   const sb=document.getElementById('mainSidebar');
   if(sb) sb.style.display=(tab==='overview')?'flex':'none';
   // Populate scheduler panel dropdown when switching to scheduler
-  if(tab==='scheduler') renderSchedPanelDropdown();
-  ({overview:renderOverview,daily:renderDailyView,wtd:renderWTD,mtd:renderMTD,ytd:renderYTD,scheduler:()=>renderSched(curSched==='all'?NAMES[0]:curSched),entry:renderEntryView})[tab]();
+  if(tab==='scheduler'){
+    renderSchedPanelDropdown();
+    // Default date range to current month if pickers are empty
+    const ds=document.getElementById('sched-date-start');
+    const de=document.getElementById('sched-date-end');
+    if(!ds.value){
+      const now=new Date();
+      ds.value=now.toISOString().slice(0,7)+'-01';
+      de.value=ymd(now);
+    }
+  }
+  ({overview:renderOverview,daily:renderDailyView,wtd:renderWTD,mtd:renderMTD,ytd:renderYTD,scheduler:()=>{
+    const s=document.getElementById('sched-date-start')?.value;
+    const e=document.getElementById('sched-date-end')?.value;
+    renderSched(curSched==='all'?NAMES[0]:curSched, s||undefined, e||undefined);
+  },entry:renderEntryView})[tab]();
 }
 
 function selectScheduler(name){
@@ -856,19 +880,46 @@ function renderYTD(){
 // ─────────────────────────────────────────────
 // SCHEDULER PROFILE
 // ─────────────────────────────────────────────
-function renderSched(name){
+function applySchedDateRange(){
+  const s=document.getElementById('sched-date-start').value;
+  const e=document.getElementById('sched-date-end').value;
+  if(!s||!e){ toast('Please select both a start and end date','error'); return; }
+  if(s>e){ toast('Start date must be before end date','error'); return; }
+  const name=curSched==='all'?NAMES[0]:curSched;
+  renderSched(name,s,e);
+}
+
+function resetSchedDateRange(){
+  document.getElementById('sched-date-start').value='';
+  document.getElementById('sched-date-end').value='';
+  const name=curSched==='all'?NAMES[0]:curSched;
+  renderSched(name);
+}
+
+function renderSched(name,s,e){
   curSched=name;
-  document.getElementById('scheduler-content').innerHTML=schedHTML(name);
+  document.getElementById('scheduler-content').innerHTML=schedHTML(name,s,e);
   renderSchedPanelDropdown();
   renderSidebar();
 }
 
-function schedHTML(name){
-  const sc=SCHEDULERS[name], m=getMar(name);
+function schedHTML(name,s,e){
+  const sc=SCHEDULERS[name];
+  // If no date range given, use all entries (all-time)
   const data=db.load();
-  const entries=data.e.filter(x=>x.name===name).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const allWorked=data.e.filter(x=>x.name===name&&x.status==='worked').sort((a,b)=>new Date(a.date)-new Date(b.date));
+  const earliest=allWorked.length?allWorked[0].date:'';
+  const latest=allWorked.length?allWorked[allWorked.length-1].date:'';
+  const rangeS=s||(earliest||'2026-01-01');
+  const rangeE=e||(latest||ymd(new Date()));
+  const hasRange=!!(s&&e);
+  const periodLabel=hasRange
+    ? `${pd(s).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})} – ${pd(e).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`
+    : 'All Time';
+  const m=agg(name,rangeS,rangeE);
+  const entries=data.e.filter(x=>x.name===name&&(!hasRange||(x.date>=s&&x.date<=e))).sort((a,b)=>new Date(b.date)-new Date(a.date));
   const worked=entries.filter(x=>x.status==='worked');
-  // Always use universal team targets
+  // Universal targets
   const TARGETS={a:22,c:75,d:125};
   const noteObj=data.n[name]||{text:'',ts:''};
   const notes=typeof noteObj==='string'?noteObj:(noteObj.text||'');
@@ -884,7 +935,7 @@ function schedHTML(name){
 
   let html=`
   <div class="section-header">
-    <div><div class="section-title">${name}</div><div class="section-sub">Tier: ${getTier(name)}</div></div>
+    <div><div class="section-title">${name}</div><div class="section-sub">Tier: ${getTier(name)} · ${periodLabel}</div></div>
     <button class="btn btn-secondary btn-sm" onclick="switchTab('overview')">← Back</button>
   </div>
   ${alerts}
