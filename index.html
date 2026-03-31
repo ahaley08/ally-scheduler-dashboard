@@ -394,8 +394,8 @@ function getTier(name){
 // ─────────────────────────────────────────────
 // SUPABASE CONFIG — paste your values from Supabase dashboard
 // ─────────────────────────────────────────────
-const SUPA_URL = https://nxmeezitqvfffkywgaqr.supabase.co
-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im54bWVleml0cXZmZmZreXdnYXFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NjE3NzYsImV4cCI6MjA5MDUzNzc3Nn0.1LSgyK_HqacoLQiYKQ6bz4uz9ipTFnPWjbXcpegMVcA
+const SUPA_URL = 'https://nxmeezitqvfffkywgaqr.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im54bWVleml0cXZmZmZreXdnYXFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ5NjE3NzYsImV4cCI6MjA5MDUzNzc3Nn0.1LSgyK_HqacoLQiYKQ6bz4uz9ipTFnPWjbXcpegMVcA';
 
 const supa = {
   headers: { 'Content-Type':'application/json', 'apikey': SUPA_KEY, 'Authorization':'Bearer '+SUPA_KEY },
@@ -462,8 +462,9 @@ async function loadAllData(){
     _loaded = true;
   } catch(err){
     console.error(err);
-    toast('Could not connect to database. Check Supabase config.', 'error');
+    toast('Could not connect to database — check console for details', 'error');
     _cache = { e: [], n: {} };
+    // Still render the page so it's not blank
   }
   showLoading(false);
 }
