@@ -185,6 +185,7 @@
     <button class="nav-tab" onclick="switchTab('mtd')" id="tab-mtd">🗓 Month-to-Date</button>
     <button class="nav-tab" onclick="switchTab('ytd')" id="tab-ytd">📈 Year-to-Date</button>
     <button class="nav-tab" onclick="switchTab('scheduler')" id="tab-scheduler">👤 Scheduler</button>
+    <button class="nav-tab" onclick="switchTab('referrals')" id="tab-referrals">🏥 Referrals</button>
     <button class="nav-tab" onclick="switchTab('entry')" id="tab-entry">✏️ Log Entry</button>
   </nav>
 </header>
@@ -285,6 +286,22 @@
         </div>
       </div>
       <div id="scheduler-content"></div>
+    </div>
+
+    <!-- REFERRALS -->
+    <div id="panel-referrals" class="view-panel">
+      <div class="section-header">
+        <div>
+          <div class="section-title">Referral Tracking</div>
+          <div class="section-sub">Log referrals by clinic — referrals received, unable to service, and scheduled</div>
+        </div>
+        <div class="search-bar">
+          <input type="month" class="form-input" id="ref-month-picker" style="max-width:160px;">
+          <button class="btn btn-primary btn-sm" onclick="renderReferrals()">View</button>
+          <button class="btn btn-secondary btn-sm" onclick="refThisMonth()">This Month</button>
+        </div>
+      </div>
+      <div id="referrals-content"></div>
     </div>
 
     <!-- ENTRY -->
@@ -447,13 +464,45 @@ const supa = {
       console.error('Supabase error:', err);
       throw new Error('Failed to save note: ' + err);
     }
+  },
+
+  async getReferrals(month){
+    // month = 'YYYY-MM', fetch all rows for that month
+    const start = month+'-01';
+    const end   = month+'-31';
+    const r = await fetch(
+      `${SUPA_URL}/rest/v1/referrals?select=*&month=eq.${encodeURIComponent(month)}&order=clinic.asc`,
+      { headers: supa.headers }
+    );
+    if(!r.ok) throw new Error('Failed to load referrals');
+    return r.json();
+  },
+
+  async upsertReferral(row){
+    // row: { id, clinic, month, referrals, unable, scheduled }
+    const r = await fetch(`${SUPA_URL}/rest/v1/referrals`, {
+      method: 'POST',
+      headers: { ...supa.headers, 'Prefer':'resolution=merge-duplicates,return=minimal', 'on_conflict':'id' },
+      body: JSON.stringify(row)
+    });
+    if(!r.ok){
+      const err = await r.text();
+      console.error('Supabase referral error:', err);
+      throw new Error('Failed to save referral: '+err);
+    }
+  },
+
+  async deleteReferral(id){
+    const r = await fetch(`${SUPA_URL}/rest/v1/referrals?id=eq.${encodeURIComponent(id)}`,
+      { method:'DELETE', headers: supa.headers });
+    if(!r.ok) throw new Error('Failed to delete referral');
   }
 };
 
 // ─────────────────────────────────────────────
 // LOCAL CACHE — Supabase data is cached here after load
 // ─────────────────────────────────────────────
-let _cache = { e: [], n: {} };
+let _cache = { e: [], n: {}, r: [] };
 let _loaded = false;
 
 const db = {
@@ -464,13 +513,15 @@ const db = {
 async function loadAllData(){
   showLoading(true);
   try {
-    const [entries, notes] = await Promise.all([ supa.getEntries(), supa.getNotes() ]);
-    _cache = { e: entries, n: notes };
+    const now = new Date();
+    const curMonth = now.toISOString().slice(0,7);
+    const [entries, notes, referrals] = await Promise.all([ supa.getEntries(), supa.getNotes(), supa.getReferrals(curMonth) ]);
+    _cache = { e: entries, n: notes, r: referrals };
     _loaded = true;
   } catch(err){
     console.error(err);
     toast('Could not connect to database — check console for details', 'error');
-    _cache = { e: [], n: {} };
+    _cache = { e: [], n: {}, r: [] };
     // Still render the page so it's not blank
   }
   showLoading(false);
@@ -795,7 +846,7 @@ function switchTab(tab){
     const s=document.getElementById('sched-date-start')?.value;
     const e=document.getElementById('sched-date-end')?.value;
     renderSched(curSched==='all'?NAMES[0]:curSched, s||undefined, e||undefined);
-  },entry:renderEntryView})[tab]();
+  },referrals:renderReferrals,entry:renderEntryView})[tab]();
 }
 
 function selectScheduler(name){
@@ -1306,6 +1357,166 @@ function clearForm(keepName){
 
 
 // ─────────────────────────────────────────────
+// REFERRAL TRACKING
+// ─────────────────────────────────────────────
+const CLINICS = ['Hospital F/U','Bowling Green','Camden','Charleston','Gadsden','Jackson','Montgomery','Nashville','Pelham','Spanish Fort','Vestavia'];
+
+let _refCache = []; // current month's referral rows
+
+function refThisMonth(){
+  const now = new Date();
+  document.getElementById('ref-month-picker').value = now.toISOString().slice(0,7);
+  renderReferrals();
+}
+
+async function renderReferrals(){
+  const picker = document.getElementById('ref-month-picker');
+  if(!picker.value){ refThisMonth(); return; }
+  const month = picker.value;
+  const monthLabel = new Date(month+'-15').toLocaleDateString('en-US',{month:'long',year:'numeric'});
+
+  // Load referrals for this month
+  showLoading(true);
+  try {
+    _refCache = await supa.getReferrals(month);
+  } catch(e) {
+    _refCache = [];
+    toast('Could not load referrals','error');
+  }
+  showLoading(false);
+
+  // Build a lookup: clinic -> row
+  const byClinic = {};
+  _refCache.forEach(r => byClinic[r.clinic] = r);
+
+  // ── Totals ──
+  const totRef  = _refCache.reduce((s,r)=>s+(+r.referrals||0),0);
+  const totUns  = _refCache.reduce((s,r)=>s+(+r.unable||0),0);
+  const totSch  = _refCache.reduce((s,r)=>s+(+r.scheduled||0),0);
+  const convRate = totRef>0 ? Math.round((totSch/totRef)*100) : 0;
+
+  let html = `<div class="section-header" style="margin-bottom:12px">
+    <div><div class="section-title" style="font-size:16px">${monthLabel}</div></div>
+  </div>`;
+
+  // Totals row
+  html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:18px;">
+    <div class="kpi-card blue"><div class="kpi-label">Total Referrals</div><div class="kpi-value">${totRef}</div><div class="kpi-target">All clinics</div></div>
+    <div class="kpi-card green"><div class="kpi-label">Total Scheduled</div><div class="kpi-value">${totSch}</div><div class="kpi-target">Converted to appts</div></div>
+    <div class="kpi-card amber"><div class="kpi-label">Unable to Service</div><div class="kpi-value">${totUns}</div><div class="kpi-target">Not able to schedule</div></div>
+    <div class="kpi-card purple"><div class="kpi-label">Conversion Rate</div><div class="kpi-value">${convRate}%</div><div class="kpi-target">Scheduled ÷ Referrals</div>${pb(convRate,100)}</div>
+  </div>`;
+
+  // ── Per-clinic dashboard table ──
+  if(_refCache.length > 0){
+    const maxRef = Math.max(..._refCache.map(r=>+r.referrals||0), 1);
+    html += `<div class="card" style="margin-bottom:18px">
+      <div class="card-title"><span class="card-title-accent"></span> Referrals by Clinic — ${monthLabel}</div>
+      <div class="scrollable-table"><table class="data-table">
+        <thead><tr>
+          <th>Clinic</th><th>Referrals</th><th>Volume</th><th>Scheduled</th><th>Unable to Service</th><th>Conversion</th><th></th>
+        </tr></thead><tbody>`;
+    CLINICS.forEach(clinic => {
+      const row = byClinic[clinic];
+      if(!row) return;
+      const ref = +row.referrals||0, sch = +row.scheduled||0, uns = +row.unable||0;
+      const conv = ref>0?Math.round((sch/ref)*100):0;
+      const barW = pct(ref, maxRef);
+      html += `<tr>
+        <td style="font-weight:700">${clinic}</td>
+        <td class="metric-bold" style="color:var(--blue)">${ref}</td>
+        <td style="min-width:100px"><div class="progress-bar" style="margin:0"><div class="progress-fill fill-blue" style="width:${barW}%"></div></div></td>
+        <td class="metric-bold" style="color:var(--green)">${sch}</td>
+        <td class="metric-bold" style="color:var(--amber)">${uns}</td>
+        <td><span style="font-weight:700;color:${conv>=75?'var(--green)':conv>=50?'var(--amber)':'var(--red)'}">${conv}%</span></td>
+        <td><button class="delete-btn" onclick="deleteReferralRow('${row.id}')" title="Delete">✕</button></td>
+      </tr>`;
+    });
+    html += `</tbody></table></div></div>`;
+  }
+
+  // ── Entry form ──
+  html += `<div class="card">
+    <div class="card-title"><span class="card-title-accent"></span> Log Referrals — ${monthLabel}</div>
+    <div style="overflow-x:auto">
+    <table class="data-table" style="min-width:560px">
+      <thead><tr>
+        <th>Clinic</th><th>Referrals Received</th><th>Unable to Service</th><th>Scheduled</th><th></th>
+      </tr></thead>
+      <tbody>`;
+
+  CLINICS.forEach(clinic => {
+    const existing = byClinic[clinic];
+    const eid = existing ? existing.id : '';
+    html += `<tr>
+      <td style="font-weight:700;white-space:nowrap">${clinic}</td>
+      <td><input type="number" class="form-input" id="ref-referrals-${clinic.replace(/\s/g,'_')}" value="${existing?existing.referrals:''}" placeholder="0" min="0" style="max-width:90px;padding:6px 10px;font-size:13px;"></td>
+      <td><input type="number" class="form-input" id="ref-unable-${clinic.replace(/\s/g,'_')}" value="${existing?existing.unable:''}" placeholder="0" min="0" style="max-width:90px;padding:6px 10px;font-size:13px;"></td>
+      <td><input type="number" class="form-input" id="ref-scheduled-${clinic.replace(/\s/g,'_')}" value="${existing?existing.scheduled:''}" placeholder="0" min="0" style="max-width:90px;padding:6px 10px;font-size:13px;"></td>
+      <td><button class="btn btn-primary btn-sm" onclick="saveReferralRow('${clinic}','${eid}','${month}')">Save</button></td>
+    </tr>`;
+  });
+
+  html += `</tbody></table></div>
+    <div style="margin-top:12px;display:flex;justify-content:flex-end;gap:10px">
+      <button class="btn btn-secondary btn-sm" onclick="saveAllReferrals('${month}')">💾 Save All Clinics</button>
+    </div>
+  </div>`;
+
+  document.getElementById('referrals-content').innerHTML = html;
+}
+
+async function saveReferralRow(clinic, existingId, month){
+  const key = clinic.replace(/\s/g,'_');
+  const ref = +document.getElementById(`ref-referrals-${key}`)?.value||0;
+  const uns = +document.getElementById(`ref-unable-${key}`)?.value||0;
+  const sch = +document.getElementById(`ref-scheduled-${key}`)?.value||0;
+  const row = { id: existingId || `${month}_${key}_${Date.now()}`, clinic, month, referrals:ref, unable:uns, scheduled:sch };
+  try {
+    showLoading(true);
+    await supa.upsertReferral(row);
+    toast(`${clinic} saved ✓`);
+    renderReferrals();
+  } catch(e) {
+    toast('Save failed — check connection','error');
+  } finally { showLoading(false); }
+}
+
+async function saveAllReferrals(month){
+  showLoading(true);
+  let saved=0, failed=0;
+  // Load current to get existing IDs
+  let existing = {};
+  try { const rows = await supa.getReferrals(month); rows.forEach(r=>existing[r.clinic]=r); } catch(e){}
+  for(const clinic of CLINICS){
+    const key = clinic.replace(/\s/g,'_');
+    const refEl = document.getElementById(`ref-referrals-${key}`);
+    const unsEl = document.getElementById(`ref-unable-${key}`);
+    const schEl = document.getElementById(`ref-scheduled-${key}`);
+    if(!refEl) continue;
+    const ref = +refEl.value||0, uns = +unsEl?.value||0, sch = +schEl?.value||0;
+    if(ref===0 && uns===0 && sch===0) continue; // skip empty rows
+    const row = { id: existing[clinic]?.id || `${month}_${key}_${Date.now()}`, clinic, month, referrals:ref, unable:uns, scheduled:sch };
+    try { await supa.upsertReferral(row); saved++; } catch(e){ failed++; }
+  }
+  showLoading(false);
+  if(failed===0) toast(`All ${saved} clinic(s) saved ✓`);
+  else toast(`${saved} saved, ${failed} failed`,'error');
+  renderReferrals();
+}
+
+async function deleteReferralRow(id){
+  if(!confirm('Delete this clinic row?')) return;
+  try {
+    showLoading(true);
+    await supa.deleteReferral(id);
+    toast('Deleted','error');
+    renderReferrals();
+  } catch(e){ toast('Delete failed','error'); }
+  finally { showLoading(false); }
+}
+
+// ─────────────────────────────────────────────
 // INIT
 // ─────────────────────────────────────────────
 (async function init(){
@@ -1316,6 +1527,7 @@ function clearForm(keepName){
   document.getElementById('wtd-picker').value=ymd(now);
   document.getElementById('mtd-picker').value=now.toISOString().slice(0,7);
   document.getElementById('ytd-picker').value=now.getFullYear();
+  document.getElementById('ref-month-picker').value=now.toISOString().slice(0,7);
   await loadAllData();
   renderSidebar();
   const sb=document.getElementById('mainSidebar');
