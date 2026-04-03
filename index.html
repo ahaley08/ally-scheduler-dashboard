@@ -316,13 +316,17 @@
     <div id="panel-referrals" class="view-panel">
       <div class="section-header">
         <div>
-          <div class="section-title">Referral Tracking</div>
-          <div class="section-sub">Log referrals by clinic — referrals received, unable to service, and scheduled</div>
+          <div class="section-title">Log Referrals</div>
+          <div class="section-sub">Enter daily referrals by clinic</div>
         </div>
         <div class="search-bar">
-          <input type="month" class="form-input" id="ref-month-picker" style="max-width:160px;">
+          <div class="date-nav">
+            <button class="date-nav-btn" onclick="shiftRefDay(-1)">‹</button>
+            <input type="date" class="form-input" id="ref-date-picker" style="max-width:165px">
+            <button class="date-nav-btn" onclick="shiftRefDay(1)">›</button>
+          </div>
           <button class="btn btn-primary btn-sm" onclick="renderReferrals()">View</button>
-          <button class="btn btn-secondary btn-sm" onclick="refThisMonth()">This Month</button>
+          <button class="btn btn-secondary btn-sm" onclick="refGoToday()">Today</button>
         </div>
       </div>
       <div id="referrals-content"></div>
@@ -531,6 +535,41 @@ const supa = {
     const r = await fetch(`${SUPA_URL}/rest/v1/referrals?id=eq.${encodeURIComponent(id)}`,
       { method:'DELETE', headers: supa.headers });
     if(!r.ok) throw new Error('Failed to delete referral');
+  },
+
+  // ── Daily referrals (referrals_daily table) ──
+  async getDailyReferrals(dateFrom, dateTo){
+    const r = await fetch(
+      `${SUPA_URL}/rest/v1/referrals_daily?select=*&date=gte.${dateFrom}&date=lte.${dateTo}&order=date.asc,clinic.asc`,
+      { headers: supa.headers }
+    );
+    if(!r.ok) throw new Error('Failed to load daily referrals');
+    return r.json();
+  },
+
+  async getAllDailyReferrals(){
+    const r = await fetch(
+      `${SUPA_URL}/rest/v1/referrals_daily?select=*&order=date.asc`,
+      { headers: supa.headers }
+    );
+    if(!r.ok) throw new Error('Failed to load all daily referrals');
+    return r.json();
+  },
+
+  async upsertDailyReferral(row){
+    // row: { id, clinic, date, referrals, unable, scheduled }
+    const r = await fetch(`${SUPA_URL}/rest/v1/referrals_daily`, {
+      method: 'POST',
+      headers: { ...supa.headers, 'Prefer':'resolution=merge-duplicates,return=minimal', 'on_conflict':'id' },
+      body: JSON.stringify(row)
+    });
+    if(!r.ok){ const err=await r.text(); throw new Error('Failed to save daily referral: '+err); }
+  },
+
+  async deleteDailyReferral(id){
+    const r = await fetch(`${SUPA_URL}/rest/v1/referrals_daily?id=eq.${encodeURIComponent(id)}`,
+      { method:'DELETE', headers: supa.headers });
+    if(!r.ok) throw new Error('Failed to delete daily referral');
   }
 };
 
@@ -538,11 +577,12 @@ const supa = {
 // LOCAL CACHE — Supabase data is cached here after load
 // ─────────────────────────────────────────────
 let _cache = { e: [], n: {}, r: [] };
+let _dailyRefs = []; // all daily referral rows
 let _loaded = false;
 
 const db = {
   load(){ return _cache; },
-  save(d){ _cache = d; }, // cache only; actual saves go through supa.upsertEntry etc.
+  save(d){ _cache = d; },
 };
 
 async function loadAllData(){
@@ -550,14 +590,20 @@ async function loadAllData(){
   try {
     const now = new Date();
     const curMonth = now.toISOString().slice(0,7);
-    const [entries, notes, referrals] = await Promise.all([ supa.getEntries(), supa.getNotes(), supa.getReferrals(curMonth) ]);
+    const [entries, notes, referrals, dailyRefs] = await Promise.all([
+      supa.getEntries(),
+      supa.getNotes(),
+      supa.getReferrals(curMonth),
+      supa.getAllDailyReferrals()
+    ]);
     _cache = { e: entries, n: notes, r: referrals };
+    _dailyRefs = dailyRefs;
     _loaded = true;
   } catch(err){
     console.error(err);
     toast('Could not connect to database — check console for details', 'error');
     _cache = { e: [], n: {}, r: [] };
-    // Still render the page so it's not blank
+    _dailyRefs = [];
   }
   showLoading(false);
 }
@@ -1392,172 +1438,185 @@ function clearForm(keepName){
 // ─────────────────────────────────────────────
 const CLINICS = ['Hospital F/U','Bowling Green','Camden','Charleston','Gadsden','Jackson','Montgomery','Nashville','Pelham','Spanish Fort','Vestavia'];
 
-let _refCache = []; // current month's referral rows
+// ─────────────────────────────────────────────
+// LOG REFERRALS — daily entry
+// ─────────────────────────────────────────────
+let _refDailyCache = []; // rows for the currently viewed date
 
-function refThisMonth(){
-  const now = new Date();
-  document.getElementById('ref-month-picker').value = now.toISOString().slice(0,7);
+function refGoToday(){
+  document.getElementById('ref-date-picker').value = ymd(new Date());
+  renderReferrals();
+}
+
+function shiftRefDay(n){
+  const cur = document.getElementById('ref-date-picker').value || ymd(new Date());
+  const d = pd(cur); d.setDate(d.getDate()+n);
+  document.getElementById('ref-date-picker').value = ymd(d);
   renderReferrals();
 }
 
 async function renderReferrals(){
-  const picker = document.getElementById('ref-month-picker');
-  if(!picker.value){ refThisMonth(); return; }
-  const month = picker.value;
-  const monthLabel = new Date(month+'-15').toLocaleDateString('en-US',{month:'long',year:'numeric'});
+  const picker = document.getElementById('ref-date-picker');
+  if(!picker || !picker.value){ refGoToday(); return; }
+  const date = picker.value;
+  const dispDate = pd(date).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
 
-  // Load referrals for this month
   showLoading(true);
   try {
-    _refCache = await supa.getReferrals(month);
+    _refDailyCache = await supa.getDailyReferrals(date, date);
   } catch(e) {
-    _refCache = [];
+    _refDailyCache = [];
     toast('Could not load referrals','error');
   }
   showLoading(false);
 
-  // Build a lookup: clinic -> row
   const byClinic = {};
-  _refCache.forEach(r => byClinic[r.clinic] = r);
+  _refDailyCache.forEach(r => byClinic[r.clinic] = r);
 
-  // ── Totals ──
-  const totRef  = _refCache.reduce((s,r)=>s+(+r.referrals||0),0);
-  const totUns  = _refCache.reduce((s,r)=>s+(+r.unable||0),0);
-  const totSch  = _refCache.reduce((s,r)=>s+(+r.scheduled||0),0);
-  const convRate = totRef>0 ? Math.round((totSch/totRef)*100) : 0;
+  // Totals for this day
+  const totRef = _refDailyCache.reduce((s,r)=>s+(+r.referrals||0),0);
+  const totSch = _refDailyCache.reduce((s,r)=>s+(+r.scheduled||0),0);
+  const totUns = _refDailyCache.reduce((s,r)=>s+(+r.unable||0),0);
+  const conv   = totRef>0?Math.round((totSch/totRef)*100):0;
 
-  let html = `<div class="section-header" style="margin-bottom:12px">
-    <div><div class="section-title" style="font-size:16px">${monthLabel}</div></div>
+  let html = `
+  <div class="info-bar" style="margin-bottom:14px;">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <button class="date-nav-btn" onclick="shiftRefDay(-1)">‹</button>
+      <strong>${dispDate}</strong>
+      <button class="date-nav-btn" onclick="shiftRefDay(1)">›</button>
+      <button class="btn btn-secondary btn-sm" onclick="refGoToday()">Today</button>
+    </div>
   </div>`;
 
-  // Totals row
+  // Day totals
   html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:18px;">
-    <div class="kpi-card blue"><div class="kpi-label">Total Referrals</div><div class="kpi-value">${totRef}</div><div class="kpi-target">All clinics</div></div>
-    <div class="kpi-card green"><div class="kpi-label">Total Scheduled</div><div class="kpi-value">${totSch}</div><div class="kpi-target">Converted to appts</div></div>
-    <div class="kpi-card amber"><div class="kpi-label">Unable to Service</div><div class="kpi-value">${totUns}</div><div class="kpi-target">Not able to schedule</div></div>
-    <div class="kpi-card purple"><div class="kpi-label">Conversion Rate</div><div class="kpi-value">${convRate}%</div><div class="kpi-target">Scheduled ÷ Referrals</div>${pb(convRate,100)}</div>
+    <div class="kpi-card blue"><div class="kpi-label">Total Referrals</div><div class="kpi-value">${totRef}</div><div class="kpi-target">Today</div></div>
+    <div class="kpi-card green"><div class="kpi-label">Scheduled</div><div class="kpi-value">${totSch}</div><div class="kpi-target">Converted</div></div>
+    <div class="kpi-card amber"><div class="kpi-label">Unable to Service</div><div class="kpi-value">${totUns}</div><div class="kpi-target">Not scheduled</div></div>
+    <div class="kpi-card purple"><div class="kpi-label">Conversion</div><div class="kpi-value">${conv}%</div><div class="kpi-target">Scheduled ÷ Referrals</div>${pb(conv,100)}</div>
   </div>`;
 
-  // ── Per-clinic dashboard table ──
-  if(_refCache.length > 0){
-    const maxRef = Math.max(..._refCache.map(r=>+r.referrals||0), 1);
+  // Existing entries for this day (summary table)
+  if(_refDailyCache.length > 0){
+    const maxR = Math.max(..._refDailyCache.map(r=>+r.referrals||0),1);
     html += `<div class="card" style="margin-bottom:18px">
-      <div class="card-title"><span class="card-title-accent"></span> Referrals by Clinic — ${monthLabel}</div>
+      <div class="card-title"><span class="card-title-accent"></span> Today's Referrals by Clinic</div>
       <div class="scrollable-table"><table class="data-table">
-        <thead><tr>
-          <th>Clinic</th><th>Referrals</th><th>Volume</th><th>Scheduled</th><th>Unable to Service</th><th>Conversion</th><th></th>
-        </tr></thead><tbody>`;
+        <thead><tr><th>Clinic</th><th>Referrals</th><th>Volume</th><th>Scheduled</th><th>Unable</th><th>Conv%</th><th></th></tr></thead>
+        <tbody>`;
     CLINICS.forEach(clinic => {
       const row = byClinic[clinic];
       if(!row) return;
-      const ref = +row.referrals||0, sch = +row.scheduled||0, uns = +row.unable||0;
-      const conv = ref>0?Math.round((sch/ref)*100):0;
-      const barW = pct(ref, maxRef);
-      html += `<tr>
+      const ref=+row.referrals||0, sch=+row.scheduled||0, uns=+row.unable||0;
+      const c=ref>0?Math.round((sch/ref)*100):0;
+      html+=`<tr>
         <td style="font-weight:700">${clinic}</td>
         <td class="metric-bold" style="color:var(--blue)">${ref}</td>
-        <td style="min-width:100px"><div class="progress-bar" style="margin:0"><div class="progress-fill fill-blue" style="width:${barW}%"></div></div></td>
+        <td><div class="progress-bar" style="margin:0;min-width:60px"><div class="progress-fill fill-blue" style="width:${pct(ref,maxR)}%"></div></div></td>
         <td class="metric-bold" style="color:var(--green)">${sch}</td>
         <td class="metric-bold" style="color:var(--amber)">${uns}</td>
-        <td><span style="font-weight:700;color:${conv>=75?'var(--green)':conv>=50?'var(--amber)':'var(--red)'}">${conv}%</span></td>
-        <td><button class="delete-btn" onclick="deleteReferralRow('${row.id}')" title="Delete">✕</button></td>
+        <td><span style="font-weight:900;color:${c>=75?'var(--green)':c>=50?'var(--amber)':'var(--red)'}">${c}%</span></td>
+        <td><button class="delete-btn" onclick="deleteDailyRefRow('${row.id}')" title="Delete">✕</button></td>
       </tr>`;
     });
-    html += `</tbody></table></div></div>`;
+    html+=`</tbody></table></div></div>`;
   }
 
-  // ── Entry form ──
+  // Entry form
   html += `<div class="card">
-    <div class="card-title"><span class="card-title-accent"></span> Log Referrals — ${monthLabel}</div>
-    <div style="overflow-x:auto">
-    <table class="data-table" style="min-width:560px">
-      <thead><tr>
-        <th>Clinic</th><th>Referrals Received</th><th>Unable to Service</th><th>Scheduled</th><th></th>
-      </tr></thead>
+    <div class="card-title"><span class="card-title-accent"></span> Log Referrals — ${pd(date).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</div>
+    <div class="scrollable-table"><table class="data-table" style="min-width:500px">
+      <thead><tr><th>Clinic</th><th>Referrals Received</th><th>Unable to Service</th><th>Scheduled</th><th></th></tr></thead>
       <tbody>`;
 
   CLINICS.forEach(clinic => {
     const existing = byClinic[clinic];
-    const eid = existing ? existing.id : '';
+    const eid = existing?.id || '';
+    const key = clinic.replace(/[^a-zA-Z0-9]/g,'_');
     html += `<tr>
       <td style="font-weight:700;white-space:nowrap">${clinic}</td>
-      <td><input type="number" class="form-input" id="ref-referrals-${clinic.replace(/\s/g,'_')}" value="${existing?existing.referrals:''}" placeholder="0" min="0" style="max-width:90px;padding:6px 10px;font-size:13px;"></td>
-      <td><input type="number" class="form-input" id="ref-unable-${clinic.replace(/\s/g,'_')}" value="${existing?existing.unable:''}" placeholder="0" min="0" style="max-width:90px;padding:6px 10px;font-size:13px;"></td>
-      <td><input type="number" class="form-input" id="ref-scheduled-${clinic.replace(/\s/g,'_')}" value="${existing?existing.scheduled:''}" placeholder="0" min="0" style="max-width:90px;padding:6px 10px;font-size:13px;"></td>
-      <td><button class="btn btn-primary btn-sm" onclick="saveReferralRow('${clinic}','${eid}','${month}')">Save</button></td>
+      <td><input type="number" class="form-input" id="dref-ref-${key}" value="${existing?+existing.referrals:''}" placeholder="0" min="0" style="max-width:90px;padding:6px 10px;font-size:13px;"></td>
+      <td><input type="number" class="form-input" id="dref-uns-${key}" value="${existing?+existing.unable:''}" placeholder="0" min="0" style="max-width:90px;padding:6px 10px;font-size:13px;"></td>
+      <td><input type="number" class="form-input" id="dref-sch-${key}" value="${existing?+existing.scheduled:''}" placeholder="0" min="0" style="max-width:90px;padding:6px 10px;font-size:13px;"></td>
+      <td><button class="btn btn-primary btn-sm" onclick="saveDailyRefRow('${clinic}','${eid}','${date}')">Save</button></td>
     </tr>`;
   });
 
   html += `</tbody></table></div>
-    <div style="margin-top:12px;display:flex;justify-content:flex-end;gap:10px">
-      <button class="btn btn-secondary btn-sm" onclick="saveAllReferrals('${month}')">💾 Save All Clinics</button>
+    <div style="margin-top:12px;display:flex;justify-content:flex-end;">
+      <button class="btn btn-secondary btn-sm" onclick="saveAllDailyRefs('${date}')">💾 Save All</button>
     </div>
   </div>`;
 
   document.getElementById('referrals-content').innerHTML = html;
 }
 
-async function saveReferralRow(clinic, existingId, month){
-  const key = clinic.replace(/\s/g,'_');
-  const ref = +document.getElementById(`ref-referrals-${key}`)?.value||0;
-  const uns = +document.getElementById(`ref-unable-${key}`)?.value||0;
-  const sch = +document.getElementById(`ref-scheduled-${key}`)?.value||0;
-  const row = { id: existingId || `${month}_${key}_${Date.now()}`, clinic, month, referrals:ref, unable:uns, scheduled:sch };
+async function saveDailyRefRow(clinic, existingId, date){
+  const key = clinic.replace(/[^a-zA-Z0-9]/g,'_');
+  const ref = +document.getElementById(`dref-ref-${key}`)?.value||0;
+  const uns = +document.getElementById(`dref-uns-${key}`)?.value||0;
+  const sch = +document.getElementById(`dref-sch-${key}`)?.value||0;
+  const row = { id: existingId||`${date}_${key}_${Date.now()}`, clinic, date, referrals:ref, unable:uns, scheduled:sch };
   try {
     showLoading(true);
-    await supa.upsertReferral(row);
+    await supa.upsertDailyReferral(row);
     toast(`${clinic} saved ✓`);
+    // Update local cache
+    const idx = _dailyRefs.findIndex(r=>r.id===row.id);
+    if(idx>-1) _dailyRefs[idx]=row; else _dailyRefs.push(row);
     renderReferrals();
-  } catch(e) {
-    toast('Save failed — check connection','error');
-  } finally { showLoading(false); }
+  } catch(e){ toast('Save failed','error'); }
+  finally { showLoading(false); }
 }
 
-async function saveAllReferrals(month){
+async function saveAllDailyRefs(date){
   showLoading(true);
-  let saved=0, failed=0;
-  // Load current to get existing IDs
+  // Load existing for this date to get IDs
   let existing = {};
-  try { const rows = await supa.getReferrals(month); rows.forEach(r=>existing[r.clinic]=r); } catch(e){}
+  try {
+    const rows = await supa.getDailyReferrals(date,date);
+    rows.forEach(r=>existing[r.clinic]=r);
+  } catch(e){}
+  let saved=0, failed=0;
   for(const clinic of CLINICS){
-    const key = clinic.replace(/\s/g,'_');
-    const refEl = document.getElementById(`ref-referrals-${key}`);
-    const unsEl = document.getElementById(`ref-unable-${key}`);
-    const schEl = document.getElementById(`ref-scheduled-${key}`);
+    const key = clinic.replace(/[^a-zA-Z0-9]/g,'_');
+    const refEl = document.getElementById(`dref-ref-${key}`);
     if(!refEl) continue;
-    const ref = +refEl.value||0, uns = +unsEl?.value||0, sch = +schEl?.value||0;
-    if(ref===0 && uns===0 && sch===0) continue; // skip empty rows
-    const row = { id: existing[clinic]?.id || `${month}_${key}_${Date.now()}`, clinic, month, referrals:ref, unable:uns, scheduled:sch };
-    try { await supa.upsertReferral(row); saved++; } catch(e){ failed++; }
+    const ref=+refEl.value||0, uns=+(document.getElementById(`dref-uns-${key}`)?.value)||0, sch=+(document.getElementById(`dref-sch-${key}`)?.value)||0;
+    if(ref===0&&uns===0&&sch===0) continue;
+    const row={ id:existing[clinic]?.id||`${date}_${key}_${Date.now()}`, clinic, date, referrals:ref, unable:uns, scheduled:sch };
+    try { await supa.upsertDailyReferral(row); saved++; } catch(e){ failed++; }
   }
   showLoading(false);
-  if(failed===0) toast(`All ${saved} clinic(s) saved ✓`);
+  if(failed===0) toast(`${saved} clinic(s) saved ✓`);
   else toast(`${saved} saved, ${failed} failed`,'error');
+  // Refresh daily refs cache
+  try { _dailyRefs = await supa.getAllDailyReferrals(); } catch(e){}
   renderReferrals();
 }
 
-async function deleteReferralRow(id){
-  if(!confirm('Delete this clinic row?')) return;
+async function deleteDailyRefRow(id){
+  if(!confirm('Delete this entry?')) return;
   try {
     showLoading(true);
-    await supa.deleteReferral(id);
+    await supa.deleteDailyReferral(id);
+    _dailyRefs = _dailyRefs.filter(r=>r.id!==id);
     toast('Deleted','error');
     renderReferrals();
   } catch(e){ toast('Delete failed','error'); }
   finally { showLoading(false); }
 }
 
-// ─────────────────────────────────────────────
 // REFERRAL DASHBOARD
 // ─────────────────────────────────────────────
 let _refDashPeriod = 'monthly'; // daily | weekly | monthly | yearly
 let _allRefs = []; // full referral dataset
 
 async function renderRefDash(){
-  const content = document.getElementById('refdash-content');
   showLoading(true);
   try {
-    _allRefs = await supa.getAllReferrals();
+    _allRefs = await supa.getAllDailyReferrals();
   } catch(e) {
     _allRefs = [];
     toast('Could not load referral data','error');
@@ -1585,19 +1644,19 @@ function renderRefDashContent(){
   if(_refDashPeriod === 'daily'){
     const fromMonth = dailyFrom.slice(0,7);
     const toMonth   = dailyTo.slice(0,7);
-    filtered = _allRefs.filter(r => r.month >= fromMonth && r.month <= toMonth);
+    filtered = _allRefs.filter(r => (r.date||r.month) >= dailyFrom && (r.date||r.month) <= dailyTo);
     periodLabel = dailyFrom === dailyTo
       ? pd(dailyFrom).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})
       : `${pd(dailyFrom).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})} – ${pd(dailyTo).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`;
   } else if(_refDashPeriod === 'weekly'){
     const ws = weekStart(now), we = weekEnd(ws);
-    filtered = _allRefs.filter(r => r.month === ws.slice(0,7) || r.month === we.slice(0,7));
+    filtered = _allRefs.filter(r => (r.date||r.month) >= ws && (r.date||r.month) <= we);
     periodLabel = `Week of ${pd(ws).toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${pd(we).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`;
   } else if(_refDashPeriod === 'monthly'){
-    filtered = _allRefs.filter(r => r.month === curMonth);
+    filtered = _allRefs.filter(r => (r.date||r.month||'').slice(0,7) === curMonth);
     periodLabel = now.toLocaleDateString('en-US',{month:'long',year:'numeric'});
   } else {
-    filtered = _allRefs.filter(r => r.month && r.month.startsWith(curYear));
+    filtered = _allRefs.filter(r => (r.date||r.month||'').startsWith(curYear));
     periodLabel = `${curYear} Year-to-Date`;
   }
 
@@ -1618,7 +1677,7 @@ function renderRefDashContent(){
   const totPend = Math.max(0, totRef - totSch - totUns);
   const convRate = totRef>0 ? Math.round((totSch/totRef)*100) : 0;
   const maxRef  = Math.max(...Object.values(byClinic).map(v=>v.referrals), 1);
-  const monthsSet = [...new Set(_allRefs.map(r=>r.month))].sort().slice(-12);
+  const monthsSet = [...new Set(_allRefs.map(r=>(r.date||r.month||'').slice(0,7)))].filter(Boolean).sort().slice(-12);
 
   // ── Daily search bar (only shown in daily mode) ──
   const dailyBar = _refDashPeriod === 'daily' ? `
@@ -1677,7 +1736,7 @@ function renderRefDashContent(){
 
   if(monthsSet.length > 0){
     const monthTotals = monthsSet.map(m => {
-      const rows = _allRefs.filter(r=>r.month===m);
+      const rows = _allRefs.filter(r=>(r.date||r.month||'').slice(0,7)===m);
       const ref=rows.reduce((s,r)=>s+(+r.referrals||0),0), sch=rows.reduce((s,r)=>s+(+r.scheduled||0),0), uns=rows.reduce((s,r)=>s+(+r.unable||0),0);
       return {m, ref, sch, uns, conv:ref>0?Math.round((sch/ref)*100):0};
     });
@@ -1778,11 +1837,11 @@ function renderAppDash(){
   const tierCounts = {Stretch:0,Close:0,Recovery:0,'Needs Attn':0,Unassigned:0};
   NAMES.forEach(n=>{ const t=getTier(n); if(tierCounts[t]!==undefined) tierCounts[t]++; });
 
-  // ── Referral metrics ──
-  const curMonthRefs = _cache.r || [];
-  const totRef = curMonthRefs.reduce((s,r)=>s+(+r.referrals||0),0);
-  const totSch = curMonthRefs.reduce((s,r)=>s+(+r.scheduled||0),0);
-  const totUns = curMonthRefs.reduce((s,r)=>s+(+r.unable||0),0);
+  // ── Referral metrics (from daily refs for current month) ──
+  const curMonthDailyRefs = _dailyRefs.filter(r=>r.date&&r.date.slice(0,7)===curMonth);
+  const totRef = curMonthDailyRefs.reduce((s,r)=>s+(+r.referrals||0),0);
+  const totSch = curMonthDailyRefs.reduce((s,r)=>s+(+r.scheduled||0),0);
+  const totUns = curMonthDailyRefs.reduce((s,r)=>s+(+r.unable||0),0);
   const convRate = totRef>0?Math.round((totSch/totRef)*100):0;
 
   // Top 3 this month
@@ -1891,7 +1950,9 @@ function renderAppDash(){
   document.getElementById('wtd-picker').value=ymd(now);
   document.getElementById('mtd-picker').value=now.toISOString().slice(0,7);
   document.getElementById('ytd-picker').value=now.getFullYear();
-  document.getElementById('ref-month-picker').value=now.toISOString().slice(0,7);
+  document.getElementById('ref-month-picker') && (document.getElementById('ref-month-picker').value=now.toISOString().slice(0,7));
+  const rdp = document.getElementById('ref-date-picker');
+  if(rdp) rdp.value = ymd(now);
   await loadAllData();
   renderSidebar();
   renderAppDash();
