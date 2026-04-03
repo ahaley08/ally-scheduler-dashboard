@@ -186,6 +186,7 @@
     <button class="nav-tab" onclick="switchTab('ytd')" id="tab-ytd">📈 Year-to-Date</button>
     <button class="nav-tab" onclick="switchTab('scheduler')" id="tab-scheduler">👤 Scheduler</button>
     <button class="nav-tab" onclick="switchTab('referrals')" id="tab-referrals">🏥 Referrals</button>
+    <button class="nav-tab" onclick="switchTab('refdash')" id="tab-refdash">📊 Ref. Dashboard</button>
     <button class="nav-tab" onclick="switchTab('entry')" id="tab-entry">✏️ Log Entry</button>
   </nav>
 </header>
@@ -302,6 +303,11 @@
         </div>
       </div>
       <div id="referrals-content"></div>
+    </div>
+
+    <!-- REFERRAL DASHBOARD -->
+    <div id="panel-refdash" class="view-panel">
+      <div id="refdash-content"></div>
     </div>
 
     <!-- ENTRY -->
@@ -464,6 +470,12 @@ const supa = {
       console.error('Supabase error:', err);
       throw new Error('Failed to save note: ' + err);
     }
+  },
+
+  async getAllReferrals(){
+    const r = await fetch(`${SUPA_URL}/rest/v1/referrals?select=*&order=month.asc`, { headers: supa.headers });
+    if(!r.ok) throw new Error('Failed to load all referrals');
+    return r.json();
   },
 
   async getReferrals(month){
@@ -846,7 +858,7 @@ function switchTab(tab){
     const s=document.getElementById('sched-date-start')?.value;
     const e=document.getElementById('sched-date-end')?.value;
     renderSched(curSched==='all'?NAMES[0]:curSched, s||undefined, e||undefined);
-  },referrals:renderReferrals,entry:renderEntryView})[tab]();
+  },referrals:renderReferrals,refdash:renderRefDash,entry:renderEntryView})[tab]();
 }
 
 function selectScheduler(name){
@@ -1514,6 +1526,168 @@ async function deleteReferralRow(id){
     renderReferrals();
   } catch(e){ toast('Delete failed','error'); }
   finally { showLoading(false); }
+}
+
+// ─────────────────────────────────────────────
+// REFERRAL DASHBOARD
+// ─────────────────────────────────────────────
+let _refDashPeriod = 'monthly'; // daily | weekly | monthly | yearly
+let _allRefs = []; // full referral dataset
+
+async function renderRefDash(){
+  const content = document.getElementById('refdash-content');
+  showLoading(true);
+  try {
+    _allRefs = await supa.getAllReferrals();
+  } catch(e) {
+    _allRefs = [];
+    toast('Could not load referral data','error');
+  }
+  showLoading(false);
+  renderRefDashContent();
+}
+
+function renderRefDashContent(){
+  const now = new Date();
+  const todayStr = ymd(now);
+  const curMonth = now.toISOString().slice(0,7);
+  const curYear = String(now.getFullYear());
+
+  // ── Filter data by period ──
+  let filtered = [];
+  let periodLabel = '';
+
+  if(_refDashPeriod === 'daily'){
+    // Referrals are stored monthly — show today's month as proxy
+    filtered = _allRefs.filter(r => r.month === curMonth);
+    periodLabel = 'Today — ' + now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+  } else if(_refDashPeriod === 'weekly'){
+    // Current week: find Mon–Sun, include any month that overlaps
+    const ws = weekStart(now);
+    const we = weekEnd(ws);
+    const wsMonth = ws.slice(0,7), weMonth = we.slice(0,7);
+    filtered = _allRefs.filter(r => r.month === wsMonth || r.month === weMonth);
+    periodLabel = `Week of ${pd(ws).toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${pd(we).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`;
+  } else if(_refDashPeriod === 'monthly'){
+    filtered = _allRefs.filter(r => r.month === curMonth);
+    periodLabel = now.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+  } else { // yearly
+    filtered = _allRefs.filter(r => r.month && r.month.startsWith(curYear));
+    periodLabel = `${curYear} Year-to-Date`;
+  }
+
+  // ── Aggregate by clinic ──
+  const byClinic = {};
+  CLINICS.forEach(c => byClinic[c] = {referrals:0, unable:0, scheduled:0});
+  filtered.forEach(r => {
+    if(byClinic[r.clinic]){
+      byClinic[r.clinic].referrals += +r.referrals||0;
+      byClinic[r.clinic].unable    += +r.unable||0;
+      byClinic[r.clinic].scheduled += +r.scheduled||0;
+    }
+  });
+
+  const totRef = Object.values(byClinic).reduce((s,v)=>s+v.referrals,0);
+  const totSch = Object.values(byClinic).reduce((s,v)=>s+v.scheduled,0);
+  const totUns = Object.values(byClinic).reduce((s,v)=>s+v.unable,0);
+  const totPend = Math.max(0, totRef - totSch - totUns);
+  const convRate = totRef>0 ? Math.round((totSch/totRef)*100) : 0;
+  const maxRef = Math.max(...Object.values(byClinic).map(v=>v.referrals), 1);
+
+  // ── Build months list for trend (up to 12) ──
+  const monthsSet = [...new Set(_allRefs.map(r=>r.month))].sort().slice(-12);
+
+  let html = `
+  <div class="section-header">
+    <div><div class="section-title">Referral Dashboard</div><div class="section-sub">${periodLabel}</div></div>
+  </div>
+
+  <!-- Period toggle -->
+  <div style="display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap;">
+    ${['daily','weekly','monthly','yearly'].map(p=>`
+    <button onclick="setRefDashPeriod('${p}')" style="padding:7px 18px;border-radius:20px;border:2px solid ${_refDashPeriod===p?'var(--blue)':'var(--border)'};background:${_refDashPeriod===p?'var(--blue)':'white'};color:${_refDashPeriod===p?'white':'var(--text-mid)'};font-family:'Montserrat',sans-serif;font-size:11px;font-weight:700;cursor:pointer;transition:all 0.15s;text-transform:capitalize;">
+      ${p==='daily'?'📅':p==='weekly'?'📆':p==='monthly'?'🗓':'📈'} ${p.charAt(0).toUpperCase()+p.slice(1)}
+    </button>`).join('')}
+  </div>
+
+  <!-- KPI totals -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:18px;">
+    <div class="kpi-card blue"><div class="kpi-label">Total Referrals</div><div class="kpi-value">${totRef}</div><div class="kpi-target">${periodLabel}</div></div>
+    <div class="kpi-card green"><div class="kpi-label">Scheduled</div><div class="kpi-value">${totSch}</div><div class="kpi-target">Converted to appts</div></div>
+    <div class="kpi-card amber"><div class="kpi-label">Unable to Service</div><div class="kpi-value">${totUns}</div><div class="kpi-target">Could not schedule</div></div>
+    <div class="kpi-card" style="border-top:3px solid var(--text-light)"><div class="kpi-label">Pending</div><div class="kpi-value">${totPend}</div><div class="kpi-target">Not yet resolved</div></div>
+    <div class="kpi-card purple"><div class="kpi-label">Conversion Rate</div><div class="kpi-value">${convRate}%</div><div class="kpi-target">Scheduled ÷ Referrals</div>${pb(convRate,100)}</div>
+  </div>
+
+  <!-- Clinic breakdown table -->
+  <div class="card" style="margin-bottom:18px;">
+    <div class="card-title"><span class="card-title-accent"></span> By Clinic — ${periodLabel}</div>
+    <div class="scrollable-table"><table class="data-table">
+      <thead><tr><th>Clinic</th><th>Referrals</th><th>Volume</th><th>Scheduled</th><th>Unable</th><th>Pending</th><th>Conv %</th></tr></thead>
+      <tbody>`;
+
+  // Sort by referrals desc
+  const sorted = CLINICS.map(c=>({clinic:c,...byClinic[c]})).sort((a,b)=>b.referrals-a.referrals);
+  sorted.forEach(row => {
+    if(row.referrals===0 && row.scheduled===0 && row.unable===0) return;
+    const conv = row.referrals>0 ? Math.round((row.scheduled/row.referrals)*100) : 0;
+    const pend = Math.max(0, row.referrals - row.scheduled - row.unable);
+    const convColor = conv>=75?'var(--green)':conv>=50?'var(--amber)':'var(--red)';
+    html += `<tr>
+      <td style="font-weight:700">${row.clinic}</td>
+      <td class="metric-bold" style="color:var(--blue)">${row.referrals}</td>
+      <td style="min-width:80px"><div class="progress-bar" style="margin:0"><div class="progress-fill fill-blue" style="width:${pct(row.referrals,maxRef)}%"></div></div></td>
+      <td class="metric-bold" style="color:var(--green)">${row.scheduled}</td>
+      <td class="metric-bold" style="color:var(--amber)">${row.unable}</td>
+      <td style="color:var(--text-mid);font-weight:700">${pend}</td>
+      <td><span style="font-weight:900;color:${convColor}">${conv}%</span></td>
+    </tr>`;
+  });
+
+  if(totRef === 0){
+    html += `<tr><td colspan="7" style="text-align:center;color:var(--text-light);font-style:italic;padding:24px">No referral data for this period</td></tr>`;
+  }
+  html += `</tbody></table></div></div>`;
+
+  // ── Monthly trend table (always shown if data exists) ──
+  if(monthsSet.length > 0){
+    html += `<div class="card">
+      <div class="card-title"><span class="card-title-accent"></span> Monthly Trend (last ${monthsSet.length} months)</div>
+      <div class="scrollable-table"><table class="data-table">
+        <thead><tr><th>Month</th><th>Referrals</th><th>Scheduled</th><th>Unable</th><th>Conv %</th><th>Trend</th></tr></thead>
+        <tbody>`;
+
+    const monthTotals = monthsSet.map(m => {
+      const rows = _allRefs.filter(r=>r.month===m);
+      const ref = rows.reduce((s,r)=>s+(+r.referrals||0),0);
+      const sch = rows.reduce((s,r)=>s+(+r.scheduled||0),0);
+      const uns = rows.reduce((s,r)=>s+(+r.unable||0),0);
+      const conv = ref>0?Math.round((sch/ref)*100):0;
+      return {m, ref, sch, uns, conv};
+    });
+    const maxTrend = Math.max(...monthTotals.map(t=>t.ref),1);
+
+    monthTotals.forEach(t => {
+      const label = new Date(t.m+'-15').toLocaleDateString('en-US',{month:'short',year:'numeric'});
+      const convColor = t.conv>=75?'var(--green)':t.conv>=50?'var(--amber)':'var(--red)';
+      html += `<tr>
+        <td style="font-weight:700">${label}</td>
+        <td class="metric-bold" style="color:var(--blue)">${t.ref}</td>
+        <td class="metric-bold" style="color:var(--green)">${t.sch}</td>
+        <td class="metric-bold" style="color:var(--amber)">${t.uns}</td>
+        <td><span style="font-weight:900;color:${convColor}">${t.conv}%</span></td>
+        <td style="min-width:80px"><div class="progress-bar" style="margin:0"><div class="progress-fill fill-blue" style="width:${pct(t.ref,maxTrend)}%"></div></div></td>
+      </tr>`;
+    });
+    html += `</tbody></table></div></div>`;
+  }
+
+  document.getElementById('refdash-content').innerHTML = html;
+}
+
+function setRefDashPeriod(period){
+  _refDashPeriod = period;
+  renderRefDashContent();
 }
 
 // ─────────────────────────────────────────────
