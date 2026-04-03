@@ -365,11 +365,20 @@
             </div>
           </div>
           <div class="form-row">
-            <div class="form-group"><label class="form-label">Total Appointments</label><input type="number" class="form-input" id="entry-appts" placeholder="0" min="0" step="0.1"></div>
-            <div class="form-group"><label class="form-label">Initial Appointments</label><input type="number" class="form-input" id="entry-inits" placeholder="0" min="0" step="0.1"></div>
+            <div class="form-group">
+              <label class="form-label">Total Appointments <span style="font-size:10px;color:var(--text-light);font-weight:600">(auto: inits + F/U)</span></label>
+              <input type="number" class="form-input" id="entry-appts" placeholder="0" min="0" step="0.1" readonly style="background:var(--blue-lt);color:var(--blue);font-weight:900;cursor:default;">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Initial Appointments</label>
+              <input type="number" class="form-input" id="entry-inits" placeholder="0" min="0" step="0.1" oninput="calcTotalAppts()">
+            </div>
           </div>
           <div class="form-row">
-            <div class="form-group"><label class="form-label">Follow-Up Appointments</label><input type="number" class="form-input" id="entry-fu" placeholder="0" min="0" step="0.1"></div>
+            <div class="form-group">
+              <label class="form-label">Follow-Up Appointments</label>
+              <input type="number" class="form-input" id="entry-fu" placeholder="0" min="0" step="0.1" oninput="calcTotalAppts()">
+            </div>
             <div class="form-group"><label class="form-label">Total Calls</label><input type="number" class="form-input" id="entry-calls" placeholder="0" min="0"></div>
           </div>
           <div class="form-row">
@@ -1340,6 +1349,12 @@ function renderEntryView(){
   container.innerHTML=html;
 }
 
+function calcTotalAppts(){
+  const inits = parseFloat(document.getElementById('entry-inits').value) || 0;
+  const fu    = parseFloat(document.getElementById('entry-fu').value)    || 0;
+  document.getElementById('entry-appts').value = (inits + fu) || '';
+}
+
 function loadEntryForEdit(id){
   const e=_cache.e.find(x=>x.id===id);
   if(!e) return;
@@ -1350,6 +1365,7 @@ function loadEntryForEdit(id){
   document.getElementById('entry-appts').value=e.appts||'';
   document.getElementById('entry-inits').value=e.inits||'';
   document.getElementById('entry-fu').value=e.fu||'';
+  calcTotalAppts(); // recalculate total from loaded inits + fu
   document.getElementById('entry-calls').value=e.calls||'';
   document.getElementById('entry-collections').value=e.collections||'';
   document.getElementById('entry-notes').value=e.notes||'';
