@@ -206,6 +206,7 @@
       <div class="left-nav-label">Referrals</div>
       <button class="nav-tab" onclick="switchTab('referrals')" id="tab-referrals">🏥 Log Referrals</button>
       <button class="nav-tab" onclick="switchTab('refdash')" id="tab-refdash">📊 Ref. Dashboard</button>
+      <button class="nav-tab" onclick="switchTab('locations')" id="tab-locations">📍 Manage Locations</button>
     </div>
     <div class="nav-divider"></div>
     <!-- Scheduler sub-list (shown when on overview or scheduler tab) -->
@@ -335,6 +336,11 @@
     <!-- REFERRAL DASHBOARD -->
     <div id="panel-refdash" class="view-panel">
       <div id="refdash-content"></div>
+    </div>
+
+    <!-- MANAGE LOCATIONS -->
+    <div id="panel-locations" class="view-panel">
+      <div id="locations-content"></div>
     </div>
 
     <!-- ENTRY -->
@@ -579,6 +585,28 @@ const supa = {
     const r = await fetch(`${SUPA_URL}/rest/v1/referrals_daily?id=eq.${encodeURIComponent(id)}`,
       { method:'DELETE', headers: supa.headers });
     if(!r.ok) throw new Error('Failed to delete daily referral');
+  },
+
+  // ── Clinics ──
+  async getClinics(){
+    const r = await fetch(`${SUPA_URL}/rest/v1/clinics?select=*&order=sort_order.asc,name.asc`, { headers: supa.headers });
+    if(!r.ok) throw new Error('Failed to load clinics');
+    return r.json();
+  },
+
+  async upsertClinic(row){
+    const r = await fetch(`${SUPA_URL}/rest/v1/clinics`, {
+      method: 'POST',
+      headers: { ...supa.headers, 'Prefer':'resolution=merge-duplicates,return=minimal', 'on_conflict':'id' },
+      body: JSON.stringify(row)
+    });
+    if(!r.ok){ const err=await r.text(); throw new Error('Failed to save clinic: '+err); }
+  },
+
+  async deleteClinic(id){
+    const r = await fetch(`${SUPA_URL}/rest/v1/clinics?id=eq.${encodeURIComponent(id)}`,
+      { method:'DELETE', headers: supa.headers });
+    if(!r.ok) throw new Error('Failed to delete clinic');
   }
 };
 
@@ -587,6 +615,7 @@ const supa = {
 // ─────────────────────────────────────────────
 let _cache = { e: [], n: {}, r: [] };
 let _dailyRefs = []; // all daily referral rows
+let _clinics = [];   // active clinics from DB
 let _loaded = false;
 
 const db = {
@@ -594,19 +623,25 @@ const db = {
   save(d){ _cache = d; },
 };
 
+// Returns active clinic names in sort order (falls back to hardcoded if DB empty)
+const FALLBACK_CLINICS = ['Hospital F/U','Bowling Green','Camden','Charleston','Gadsden','Jackson','Montgomery','Nashville','Pelham','Spanish Fort','Vestavia'];
+function getActiveClinics(){ return _clinics.length ? _clinics.filter(c=>c.active).map(c=>c.name) : FALLBACK_CLINICS; }
+
 async function loadAllData(){
   showLoading(true);
   try {
     const now = new Date();
     const curMonth = now.toISOString().slice(0,7);
-    const [entries, notes, referrals, dailyRefs] = await Promise.all([
+    const [entries, notes, referrals, dailyRefs, clinics] = await Promise.all([
       supa.getEntries(),
       supa.getNotes(),
       supa.getReferrals(curMonth),
-      supa.getAllDailyReferrals()
+      supa.getAllDailyReferrals(),
+      supa.getClinics()
     ]);
     _cache = { e: entries, n: notes, r: referrals };
     _dailyRefs = dailyRefs;
+    _clinics = clinics;
     _loaded = true;
   } catch(err){
     console.error(err);
@@ -933,7 +968,7 @@ function switchTab(tab){
     const s=document.getElementById('sched-date-start')?.value;
     const e=document.getElementById('sched-date-end')?.value;
     renderSched(curSched==='all'?NAMES[0]:curSched, s||undefined, e||undefined);
-  },referrals:renderReferrals,refdash:renderRefDash,entry:renderEntryView})[tab]?.();
+  },referrals:renderReferrals,refdash:renderRefDash,locations:renderLocations,entry:renderEntryView})[tab]?.();
 }
 
 function selectScheduler(name){
@@ -1452,7 +1487,9 @@ function clearForm(keepName){
 // ─────────────────────────────────────────────
 // REFERRAL TRACKING
 // ─────────────────────────────────────────────
-const CLINICS = ['Hospital F/U','Bowling Green','Camden','Charleston','Gadsden','Jackson','Montgomery','Nashville','Pelham','Spanish Fort','Vestavia'];
+// CLINICS is now dynamic — loaded from Supabase clinics table
+// Use getActiveClinics() everywhere; this alias ensures old references still work
+const CLINICS = { get length(){ return getActiveClinics().length; }, forEach(fn){ getActiveClinics().forEach(fn); }, map(fn){ return getActiveClinics().map(fn); }, filter(fn){ return getActiveClinics().filter(fn); }, includes(v){ return getActiveClinics().includes(v); } };
 
 // ─────────────────────────────────────────────
 // LOG REFERRALS — daily entry
@@ -1953,6 +1990,174 @@ function renderAppDash(){
   </div>`;
 
   document.getElementById('appdash-content').innerHTML = html;
+}
+
+// ─────────────────────────────────────────────
+// MANAGE LOCATIONS
+// ─────────────────────────────────────────────
+async function renderLocations(){
+  // Reload fresh from DB
+  showLoading(true);
+  try { _clinics = await supa.getClinics(); } catch(e){ toast('Could not load clinics','error'); }
+  showLoading(false);
+
+  const active   = _clinics.filter(c=>c.active);
+  const inactive = _clinics.filter(c=>!c.active);
+
+  let html = `
+  <div class="section-header">
+    <div><div class="section-title">Manage Locations</div><div class="section-sub">Add, edit, reorder, or deactivate clinic locations used in referral tracking</div></div>
+  </div>
+
+  <!-- Add new clinic -->
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-title"><span class="card-title-accent"></span> Add New Location</div>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      <div class="form-group" style="flex:1;min-width:200px">
+        <label class="form-label">Clinic Name</label>
+        <input type="text" class="form-input" id="new-clinic-name" placeholder="e.g. Birmingham" maxlength="60">
+      </div>
+      <button class="btn btn-primary" onclick="addClinic()" style="margin-bottom:2px">+ Add Location</button>
+    </div>
+  </div>
+
+  <!-- Active clinics -->
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-title"><span class="card-title-accent"></span> Active Locations (${active.length})</div>
+    ${active.length === 0 ? '<div style="color:var(--text-light);font-style:italic;font-size:12px">No active locations yet — add one above</div>' : ''}
+    <div id="clinic-list">`;
+
+  active.forEach((c, i) => {
+    html += `
+    <div id="clinic-row-${c.id}" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);">
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <button onclick="moveClinic('${c.id}',-1)" ${i===0?'disabled':''} style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text-light);padding:0;line-height:1;${i===0?'opacity:0.3':''}">▲</button>
+        <button onclick="moveClinic('${c.id}',1)" ${i===active.length-1?'disabled':''} style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text-light);padding:0;line-height:1;${i===active.length-1?'opacity:0.3':''}">▼</button>
+      </div>
+      <span style="font-size:11px;color:var(--text-light);font-weight:700;min-width:22px;text-align:center">${i+1}</span>
+      <div id="clinic-display-${c.id}" style="flex:1;font-size:13px;font-weight:700;color:var(--text-dark)">${c.name}</div>
+      <input type="text" id="clinic-edit-${c.id}" class="form-input" value="${c.name}" style="flex:1;display:none;max-width:260px;padding:6px 10px;font-size:13px">
+      <div id="clinic-actions-${c.id}" style="display:flex;gap:6px">
+        <button class="btn btn-secondary btn-sm" onclick="startEditClinic('${c.id}')">✏️ Edit</button>
+        <button class="btn btn-secondary btn-sm" style="color:var(--amber)" onclick="toggleClinic('${c.id}',false)">Deactivate</button>
+        <button class="delete-btn" onclick="confirmDeleteClinic('${c.id}','${c.name.replace(/'/g,"\\'")}')">✕</button>
+      </div>
+      <div id="clinic-save-${c.id}" style="display:none;gap:6px">
+        <button class="btn btn-primary btn-sm" onclick="saveEditClinic('${c.id}')">Save</button>
+        <button class="btn btn-secondary btn-sm" onclick="cancelEditClinic('${c.id}','${c.name.replace(/'/g,"\\'")}')">Cancel</button>
+      </div>
+    </div>`;
+  });
+
+  html += `</div></div>`;
+
+  // Inactive clinics
+  if(inactive.length > 0){
+    html += `<div class="card">
+      <div class="card-title"><span class="card-title-accent"></span> Deactivated Locations (${inactive.length})</div>
+      <div style="color:var(--text-light);font-size:11px;margin-bottom:12px">Deactivated locations won't appear in referral forms but their historical data is preserved.</div>`;
+    inactive.forEach(c => {
+      html += `<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);">
+        <span style="font-size:12px;font-weight:700;color:var(--text-light);flex:1">${c.name}</span>
+        <button class="btn btn-secondary btn-sm" style="color:var(--green)" onclick="toggleClinic('${c.id}',true)">Reactivate</button>
+        <button class="delete-btn" onclick="confirmDeleteClinic('${c.id}','${c.name.replace(/'/g,"\\'")}')">✕</button>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  document.getElementById('locations-content').innerHTML = html;
+}
+
+function startEditClinic(id){
+  document.getElementById('clinic-display-'+id).style.display='none';
+  document.getElementById('clinic-edit-'+id).style.display='block';
+  document.getElementById('clinic-actions-'+id).style.display='none';
+  document.getElementById('clinic-save-'+id).style.display='flex';
+  document.getElementById('clinic-edit-'+id).focus();
+}
+
+function cancelEditClinic(id, originalName){
+  document.getElementById('clinic-display-'+id).style.display='block';
+  document.getElementById('clinic-edit-'+id).style.display='none';
+  document.getElementById('clinic-actions-'+id).style.display='flex';
+  document.getElementById('clinic-save-'+id).style.display='none';
+  document.getElementById('clinic-edit-'+id).value=originalName;
+}
+
+async function saveEditClinic(id){
+  const newName = document.getElementById('clinic-edit-'+id).value.trim();
+  if(!newName){ toast('Name cannot be empty','error'); return; }
+  const clinic = _clinics.find(c=>c.id===id);
+  if(!clinic) return;
+  try {
+    showLoading(true);
+    await supa.upsertClinic({...clinic, name:newName});
+    toast('Location updated ✓');
+    await renderLocations();
+  } catch(e){ toast('Save failed','error'); }
+  finally { showLoading(false); }
+}
+
+async function addClinic(){
+  const nameEl = document.getElementById('new-clinic-name');
+  const name = nameEl.value.trim();
+  if(!name){ toast('Enter a clinic name','error'); return; }
+  if(_clinics.some(c=>c.name.toLowerCase()===name.toLowerCase())){ toast('That location already exists','error'); return; }
+  const maxOrder = _clinics.length ? Math.max(..._clinics.map(c=>c.sort_order||0)) : 0;
+  const row = { id: Date.now().toString(), name, sort_order: maxOrder+1, active: true };
+  try {
+    showLoading(true);
+    await supa.upsertClinic(row);
+    nameEl.value='';
+    toast(`${name} added ✓`);
+    _clinics = await supa.getClinics();
+    renderLocations();
+  } catch(e){ toast('Add failed','error'); }
+  finally { showLoading(false); }
+}
+
+async function toggleClinic(id, active){
+  const clinic = _clinics.find(c=>c.id===id);
+  if(!clinic) return;
+  try {
+    showLoading(true);
+    await supa.upsertClinic({...clinic, active});
+    toast(active ? `${clinic.name} reactivated` : `${clinic.name} deactivated`);
+    _clinics = await supa.getClinics();
+    renderLocations();
+  } catch(e){ toast('Update failed','error'); }
+  finally { showLoading(false); }
+}
+
+async function moveClinic(id, dir){
+  const active = _clinics.filter(c=>c.active).sort((a,b)=>(a.sort_order||0)-(b.sort_order||0));
+  const idx = active.findIndex(c=>c.id===id);
+  const swapIdx = idx+dir;
+  if(swapIdx<0||swapIdx>=active.length) return;
+  // Swap sort orders
+  const tmp = active[idx].sort_order;
+  active[idx].sort_order = active[swapIdx].sort_order;
+  active[swapIdx].sort_order = tmp;
+  try {
+    showLoading(true);
+    await Promise.all([supa.upsertClinic(active[idx]), supa.upsertClinic(active[swapIdx])]);
+    _clinics = await supa.getClinics();
+    renderLocations();
+  } catch(e){ toast('Reorder failed','error'); }
+  finally { showLoading(false); }
+}
+
+async function confirmDeleteClinic(id, name){
+  if(!confirm(`Permanently delete "${name}"? This cannot be undone.\n\nNote: historical referral data for this clinic will remain in the database.`)) return;
+  try {
+    showLoading(true);
+    await supa.deleteClinic(id);
+    toast(`${name} deleted`,'error');
+    _clinics = await supa.getClinics();
+    renderLocations();
+  } catch(e){ toast('Delete failed — clinic may have referral data attached','error'); }
+  finally { showLoading(false); }
 }
 
 // ─────────────────────────────────────────────
