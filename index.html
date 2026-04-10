@@ -1569,6 +1569,7 @@ async function renderReferrals(){
       <strong>${dispDate}</strong>
       <button class="date-nav-btn" onclick="shiftRefDay(1)">›</button>
       <button class="btn btn-secondary btn-sm" onclick="refGoToday()">Today</button>
+      ${_refDailyCache.length>0?`<button class="btn btn-secondary btn-sm" style="color:var(--red);margin-left:auto" onclick="clearRefDay('${date}')">🗑 Clear All Entries for This Day</button>`:''}
     </div>
   </div>`;
 
@@ -1633,6 +1634,21 @@ async function renderReferrals(){
   </div>`;
 
   document.getElementById('referrals-content').innerHTML = html;
+}
+
+async function clearRefDay(date){
+  if(!confirm(`Delete ALL referral entries for ${pd(date).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}?\n\nThis cannot be undone.`)) return;
+  showLoading(true);
+  let failed = 0;
+  for(const row of _refDailyCache){
+    try { await supa.deleteDailyReferral(row.id); }
+    catch(e){ failed++; }
+  }
+  _dailyRefs = _dailyRefs.filter(r => r.date !== date);
+  showLoading(false);
+  if(failed===0) toast('All entries cleared for this day','error');
+  else toast(`${failed} entries could not be deleted`,'error');
+  renderReferrals();
 }
 
 async function saveDailyRefRow(clinic, existingId, date){
