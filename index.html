@@ -2341,60 +2341,6 @@ function renderGoalsContent(){
         </div>`).join('')}
       <button class="btn btn-primary btn-sm" onclick="saveTeamGoal('${month}')" style="margin-bottom:18px">Save Team Goals</button>
     </div>
-  </div>
-
-  <!-- Per-scheduler table -->
-  <div class="card">
-    <div class="card-title"><span class="card-title-accent"></span> Scheduler Goals vs Actuals — ${periodLabel}</div>
-    <div class="scrollable-table"><table class="data-table" style="min-width:760px">
-      <thead>
-        <tr>
-          <th rowspan="2">Scheduler</th><th rowspan="2">Tier</th>
-          <th colspan="3" style="text-align:center;background:#044d91">Initials</th>
-          <th colspan="3" style="text-align:center;background:#3a7a30">Existing (F/U)</th>
-          <th colspan="3" style="text-align:center;background:#8f4fb0">Collections</th>
-          <th rowspan="2"></th>
-        </tr>
-        <tr>
-          <th>Monthly</th><th>Daily</th><th>Actual</th>
-          <th>Monthly</th><th>Daily</th><th>Actual</th>
-          <th>Monthly</th><th>Daily</th><th>Actual</th>
-        </tr>
-      </thead><tbody>`;
-
-  schedulerRows.forEach(({name,g,m}) => {
-    const tier = getTier(name);
-    const key = name.replace(/\s/g,'_');
-    const iG=g?+g.inits||0:0, fG=g?+g.fu||0:0, cG=g?+g.collections||0:0;
-    const iA=m?m.i||0:0, fA=m?m.f||0:0, cA=m?m.d||0:0;
-    // Daily goals = monthly ÷ work days in month
-    const iDay = workDaysInMonth>0?iG/workDaysInMonth:0;
-    const fDay = workDaysInMonth>0?fG/workDaysInMonth:0;
-    const cDay = workDaysInMonth>0?cG/workDaysInMonth:0;
-    // Period targets
-    const iT=iG*periodGoalFactor, fT=fG*periodGoalFactor, cT=cG*periodGoalFactor;
-
-    html+=`<tr>
-      <td class="scheduler-name" style="cursor:pointer" onclick="jumpTo('${name}')">${name}</td>
-      <td><span class="tier-pill ${tc(tier)}">${tier}</span></td>
-      <td><input type="number" class="form-input" id="sg-inits-${key}" value="${iG||''}" placeholder="0" min="0" style="max-width:65px;padding:4px 7px;font-size:12px;"></td>
-      <td style="color:var(--text-light);font-size:11px;font-weight:600">${iDay>0?fn(iDay):'-'}</td>
-      <td class="${iT>0?mc(iA,iT):''} metric-bold">${fn(iA)}</td>
-      <td><input type="number" class="form-input" id="sg-fu-${key}" value="${fG||''}" placeholder="0" min="0" style="max-width:65px;padding:4px 7px;font-size:12px;"></td>
-      <td style="color:var(--text-light);font-size:11px;font-weight:600">${fDay>0?fn(fDay):'-'}</td>
-      <td class="${fT>0?mc(fA,fT):''} metric-bold">${fn(fA)}</td>
-      <td><input type="number" class="form-input" id="sg-coll-${key}" value="${cG||''}" placeholder="125" min="0" step="0.01" style="max-width:75px;padding:4px 7px;font-size:12px;"></td>
-      <td style="color:var(--text-light);font-size:11px;font-weight:600">${cDay>0?fd(cDay):'-'}</td>
-      <td class="${cT>0?mc(cA,cT):''} metric-bold">${fd(cA)}</td>
-      <td><button class="btn btn-primary btn-sm" onclick="saveSchedulerGoal('${name}','${month}','${g?g.id:''}')">Save</button></td>
-    </tr>`;
-  });
-
-  html+=`</tbody></table></div>
-    <div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-      <div style="font-size:11px;color:var(--text-light);font-style:italic">Monthly goals ÷ ${workDaysInMonth} Mon–Fri work days = daily target · Actuals from scheduler log &amp; referral entries</div>
-      <button class="btn btn-secondary btn-sm" onclick="saveAllSchedulerGoals('${month}')">💾 Save All</button>
-    </div>
   </div>`;
 
   document.getElementById('goals-content').innerHTML = html;
