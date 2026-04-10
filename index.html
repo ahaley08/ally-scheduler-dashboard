@@ -1987,18 +1987,9 @@ function renderAppDash(){
     <div class="card">
       <div class="card-title"><span class="card-title-accent"></span> Referrals — ${monthLabel}</div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
-        <div style="text-align:center;padding:10px;background:var(--blue-lt);border-radius:8px">
-          <div style="font-size:22px;font-weight:900;color:var(--blue)">${totRef}</div>
-          <div style="font-size:10px;font-weight:700;color:var(--text-light);text-transform:uppercase">Received</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:var(--green-lt);border-radius:8px">
-          <div style="font-size:22px;font-weight:900;color:var(--green)">${totSch}</div>
-          <div style="font-size:10px;font-weight:700;color:var(--text-light);text-transform:uppercase">Scheduled</div>
-        </div>
-        <div style="text-align:center;padding:10px;background:var(--amber-lt);border-radius:8px">
-          <div style="font-size:22px;font-weight:900;color:var(--amber)">${totUns}</div>
-          <div style="font-size:10px;font-weight:700;color:var(--text-light);text-transform:uppercase">Unable</div>
-        </div>
+    <div class="kpi-card blue"><div class="kpi-label">Referrals MTD</div><div class="kpi-value">${totRef}</div><div class="kpi-target">${monthLabel}</div></div>
+    <div class="kpi-card green"><div class="kpi-label">Scheduled MTD</div><div class="kpi-value">${totSch}</div><div class="kpi-target">Converted to appts</div></div>
+    <div class="kpi-card amber"><div class="kpi-label">Unable MTD</div><div class="kpi-value">${totUns}</div><div class="kpi-target">Could not schedule</div></div>
         <div style="text-align:center;padding:10px;background:var(--purple-lt);border-radius:8px">
           <div style="font-size:22px;font-weight:900;color:var(--purple)">${convRate}%</div>
           <div style="font-size:10px;font-weight:700;color:var(--text-light);text-transform:uppercase">Conv. Rate</div>
@@ -2194,6 +2185,7 @@ async function confirmDeleteClinic(id, name){
 // MONTHLY GOALS
 // ─────────────────────────────────────────────
 let _goalsMonth = '';
+let _goalsPeriod = 'monthly'; // daily | weekly | monthly | yearly
 
 async function renderGoals(){
   const now = new Date();
@@ -2210,109 +2202,129 @@ function renderGoalsContent(){
   const now = new Date();
   const month = _goalsMonth;
   const monthLabel = new Date(month+'-15').toLocaleDateString('en-US',{month:'long',year:'numeric'});
-
-  // Build lookup: name -> goal row
   const byName = {};
   _goals.forEach(g => byName[g.name] = g);
-
-  // Actual performance for the month
-  const ms = month+'-01', me = monthEnd(month);
-  const today = ymd(now);
-  const effEnd = me < today ? me : today;
-
-  // Team-level goal row (name='_team')
   const teamGoal = byName['_team'] || null;
 
-  // --- Summary vs actuals ---
-  const schedulerRows = NAMES.map(name => {
-    const g = byName[name] || null;
-    const m = aggOrBase(name, ms, effEnd);
-    return { name, g, m };
-  });
+  // ── Date range for actuals based on selected period ──
+  const today = ymd(now);
+  const curYear = String(now.getFullYear());
+  let s, e, periodLabel;
+
+  if(_goalsPeriod === 'daily'){
+    s = today; e = today;
+    periodLabel = now.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+  } else if(_goalsPeriod === 'weekly'){
+    s = weekStart(now);
+    const we = weekEnd(s);
+    e = we < today ? we : today;
+    periodLabel = `${pd(s).toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${pd(e).toLocaleDateString('en-US',{month:'short',day:'numeric'})}`;
+  } else if(_goalsPeriod === 'monthly'){
+    s = month+'-01';
+    const me = monthEnd(month);
+    e = me < today ? me : today;
+    periodLabel = monthLabel;
+  } else {
+    s = curYear+'-01-01'; e = today;
+    periodLabel = curYear+' YTD';
+  }
+
+  const schedulerRows = NAMES.map(name => ({ name, g: byName[name]||null, m: aggOrBase(name,s,e) }));
+
+  // Scale monthly goals to match selected period
+  const scaleFactor = _goalsPeriod==='daily' ? 1/22 : _goalsPeriod==='weekly' ? 5/22 : _goalsPeriod==='yearly' ? 12 : 1;
+
+  const GOAL_FIELDS = [
+    { key:'inits',       label:'Initials',       ph:'0',   get: r=>r.m?r.m.i||0:0, fmt:v=>fn(v) },
+    { key:'fu',          label:'Existing (F/U)', ph:'0',   get: r=>r.m?r.m.f||0:0, fmt:v=>fn(v) },
+    { key:'collections', label:'Collections',    ph:'125', get: r=>r.m?r.m.d||0:0, fmt:v=>fd(v) },
+  ];
+
+  const withData = schedulerRows.filter(r=>r.m);
+
+  // Team summary cards
+  const teamCards = GOAL_FIELDS.map(f => {
+    const actual = withData.length ? withData.reduce((s,r)=>s+(f.get(r)||0),0)/withData.length : 0;
+    const rawGoal = teamGoal ? (+teamGoal[f.key]||0) : 0;
+    const goalVal = rawGoal * scaleFactor;
+    const pct2 = goalVal>0 ? Math.min(100,Math.round((actual/goalVal)*100)) : 0;
+    const color = goalVal>0 ? (pct2>=100?'var(--green)':pct2>=75?'var(--amber)':'var(--red)') : 'var(--border)';
+    return `<div class="kpi-card" style="border-top:3px solid ${color}">
+      <div class="kpi-label">${f.label}</div>
+      <div style="display:flex;align-items:baseline;gap:6px;margin-top:4px">
+        <div style="font-size:22px;font-weight:900;color:${goalVal>0?color:'var(--text-dark)'}">${f.fmt(actual)}</div>
+        <div style="font-size:11px;color:var(--text-light)">/ ${goalVal>0?f.fmt(goalVal):'no goal'}</div>
+      </div>
+      ${goalVal>0?pb(actual,goalVal):'<div style="font-size:10px;color:var(--text-light);margin-top:4px">No goal set</div>'}
+      <div style="font-size:10px;color:var(--text-light);margin-top:3px">Team avg · ${periodLabel}</div>
+    </div>`;
+  }).join('');
+
+  const toggleBtns = ['daily','weekly','monthly','yearly'].map(p=>`
+    <button onclick="setGoalsPeriod('${p}')" style="padding:7px 16px;border-radius:20px;border:2px solid ${_goalsPeriod===p?'var(--blue)':'var(--border)'};background:${_goalsPeriod===p?'var(--blue)':'white'};color:${_goalsPeriod===p?'white':'var(--text-mid)'};font-family:'Montserrat',sans-serif;font-size:11px;font-weight:700;cursor:pointer;transition:all 0.15s;">
+      ${p==='daily'?'📅':p==='weekly'?'📆':p==='monthly'?'🗓':'📈'} ${p.charAt(0).toUpperCase()+p.slice(1)}
+    </button>`).join('');
 
   let html = `
   <div class="section-header">
-    <div><div class="section-title">Monthly Goals</div><div class="section-sub">Set and track targets for each scheduler by month</div></div>
+    <div><div class="section-title">Goals</div><div class="section-sub">Initials, Existing &amp; Collections — goals set monthly, actuals by selected period</div></div>
     <div class="search-bar">
-      <input type="month" class="form-input" id="goals-month-picker" value="${month}" style="max-width:160px;">
-      <button class="btn btn-primary btn-sm" onclick="goalsChangeMonth()">View</button>
+      <input type="month" class="form-input" id="goals-month-picker" value="${month}" style="max-width:160px;" title="Select month to load/set goals">
+      <button class="btn btn-primary btn-sm" onclick="goalsChangeMonth()">Load Goals</button>
       <button class="btn btn-secondary btn-sm" onclick="goalsThisMonth()">This Month</button>
       <button class="btn btn-secondary btn-sm" onclick="copyGoalsFromLastMonth()">📋 Copy Last Month</button>
     </div>
   </div>
 
-  <!-- Team-level goal card -->
+  <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;">${toggleBtns}</div>
+
   <div class="card" style="margin-bottom:18px">
-    <div class="card-title"><span class="card-title-accent"></span> Team Goals — ${monthLabel}</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:14px;">
-      ${['appts','calls','collections','referrals','scheduled'].map(field => {
-        const labels={appts:'Appts/Day (team avg)',calls:'Calls/Day (team avg)',collections:'Collections/Day',referrals:'Total Referrals',scheduled:'Total Scheduled'};
-        const actual = field==='appts' ? (schedulerRows.filter(r=>r.m).reduce((s,r)=>s+(r.m.a||0),0)/Math.max(schedulerRows.filter(r=>r.m).length,1))
-          : field==='calls' ? (schedulerRows.filter(r=>r.m).reduce((s,r)=>s+(r.m.c||0),0)/Math.max(schedulerRows.filter(r=>r.m).length,1))
-          : field==='collections' ? (schedulerRows.filter(r=>r.m).reduce((s,r)=>s+(r.m.d||0),0)/Math.max(schedulerRows.filter(r=>r.m).length,1))
-          : field==='referrals' ? _dailyRefs.filter(r=>r.date&&r.date.slice(0,7)===month).reduce((s,r)=>s+(+r.referrals||0),0)
-          : _dailyRefs.filter(r=>r.date&&r.date.slice(0,7)===month).reduce((s,r)=>s+(+r.scheduled||0),0);
-        const goalVal = teamGoal ? (+teamGoal[field]||0) : 0;
-        const pctVal = goalVal>0 ? Math.min(100,Math.round((actual/goalVal)*100)) : 0;
-        const color = pctVal>=100?'var(--green)':pctVal>=75?'var(--amber)':'var(--red)';
-        return `<div class="kpi-card" style="border-top:3px solid ${color}">
-          <div class="kpi-label">${labels[field]}</div>
-          <div style="display:flex;align-items:baseline;gap:6px;margin-top:4px">
-            <div style="font-size:20px;font-weight:900;color:${color}">${field==='collections'?fd(actual):fn(actual,field==='calls'?0:1)}</div>
-            <div style="font-size:11px;color:var(--text-light)">/ ${goalVal>0?(field==='collections'?fd(goalVal):goalVal):'—'}</div>
-          </div>
-          ${goalVal>0?pb(actual,goalVal):'<div style="font-size:10px;color:var(--text-light);margin-top:4px">No goal set</div>'}
-        </div>`;
-      }).join('')}
-    </div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <span style="font-size:11px;font-weight:700;color:var(--text-mid)">Set team goals:</span>
-      ${['appts','calls','collections','referrals','scheduled'].map(f=>`
-        <div style="display:flex;flex-direction:column;gap:3px;min-width:100px">
-          <label style="font-size:10px;font-weight:700;color:var(--text-light);text-transform:uppercase">${f==='appts'?'Appts/Day':f==='calls'?'Calls/Day':f==='collections'?'Collections':f==='referrals'?'Referrals':'Scheduled'}</label>
-          <input type="number" class="form-input" id="tgoal-${f}" value="${teamGoal?teamGoal[f]||'':''}" placeholder="0" min="0" step="${f==='collections'?'0.01':'1'}" style="padding:6px 10px;font-size:13px;">
+    <div class="card-title"><span class="card-title-accent"></span> Team Averages vs Goals — ${periodLabel}</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px;">${teamCards}</div>
+    <div class="card-title" style="margin-bottom:8px"><span class="card-title-accent"></span> Set Monthly Targets (team avg / month)</div>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+      ${GOAL_FIELDS.map(f=>`
+        <div style="display:flex;flex-direction:column;gap:3px;">
+          <label style="font-size:10px;font-weight:700;color:var(--text-light);text-transform:uppercase">${f.label} / month</label>
+          <input type="number" class="form-input" id="tgoal-${f.key}" value="${teamGoal?teamGoal[f.key]||'':''}" placeholder="${f.ph}" min="0" step="${f.key==='collections'?'0.01':'1'}" style="max-width:120px;padding:6px 10px;font-size:13px;">
         </div>`).join('')}
-      <button class="btn btn-primary btn-sm" onclick="saveTeamGoal('${month}')" style="margin-top:16px">Save Team Goals</button>
+      <button class="btn btn-primary btn-sm" onclick="saveTeamGoal('${month}')" style="margin-bottom:2px">Save Team Goals</button>
     </div>
   </div>
 
-  <!-- Per-scheduler goals table -->
   <div class="card">
-    <div class="card-title"><span class="card-title-accent"></span> Scheduler Goals & Actuals — ${monthLabel}</div>
-    <div style="overflow-x:auto">
-    <table class="data-table" style="min-width:780px">
+    <div class="card-title"><span class="card-title-accent"></span> Scheduler Goals vs Actuals — ${periodLabel}</div>
+    <div class="scrollable-table"><table class="data-table" style="min-width:720px">
       <thead><tr>
         <th>Scheduler</th><th>Tier</th>
-        <th>Appts Goal</th><th>Appts Actual</th>
-        <th>Calls Goal</th><th>Calls Actual</th>
-        <th>Coll. Goal</th><th>Coll. Actual</th>
-        <th>Actions</th>
-      </tr></thead>
-      <tbody>`;
+        <th>Initials Goal/mo</th><th>Initials Actual</th>
+        <th>Existing Goal/mo</th><th>Existing Actual</th>
+        <th>Coll. Goal/mo</th><th>Coll. Actual</th>
+        <th></th>
+      </tr></thead><tbody>`;
 
-  schedulerRows.forEach(({name, g, m}) => {
+  schedulerRows.forEach(({name,g,m}) => {
     const tier = getTier(name);
-    const apptGoal = g?+g.appts||0:0, callGoal = g?+g.calls||0:0, collGoal = g?+g.collections||0:0;
-    const apptAct = m?m.a||0:0, callAct = m?m.c||0:0, collAct = m?m.d||0:0;
-    const apptColor = apptGoal>0?mc(apptAct,apptGoal):'';
-    const callColor = callGoal>0?mc(callAct,callGoal):'';
-    const collColor = collGoal>0?mc(collAct,collGoal):'';
-
-    html += `<tr>
+    const key = name.replace(/\s/g,'_');
+    const iG=g?+g.inits||0:0, fG=g?+g.fu||0:0, cG=g?+g.collections||0:0;
+    const iA=m?m.i||0:0, fA=m?m.f||0:0, cA=m?m.d||0:0;
+    const iGS=iG*scaleFactor, fGS=fG*scaleFactor, cGS=(cG||0)*scaleFactor;
+    html+=`<tr>
       <td class="scheduler-name" style="cursor:pointer" onclick="jumpTo('${name}')">${name}</td>
       <td><span class="tier-pill ${tc(tier)}">${tier}</span></td>
-      <td><input type="number" class="form-input" id="sg-appts-${name.replace(/\s/g,'_')}" value="${apptGoal||''}" placeholder="22" min="0" style="max-width:70px;padding:5px 8px;font-size:12px;"></td>
-      <td class="${apptColor} metric-bold">${fn(apptAct)}</td>
-      <td><input type="number" class="form-input" id="sg-calls-${name.replace(/\s/g,'_')}" value="${callGoal||''}" placeholder="75" min="0" style="max-width:70px;padding:5px 8px;font-size:12px;"></td>
-      <td class="${callColor} metric-bold">${fn(callAct,0)}</td>
-      <td><input type="number" class="form-input" id="sg-coll-${name.replace(/\s/g,'_')}" value="${collGoal||''}" placeholder="125" min="0" step="0.01" style="max-width:80px;padding:5px 8px;font-size:12px;"></td>
-      <td class="${collColor} metric-bold">${fd(collAct)}</td>
+      <td><input type="number" class="form-input" id="sg-inits-${key}" value="${iG||''}" placeholder="0" min="0" style="max-width:70px;padding:5px 8px;font-size:12px;"></td>
+      <td class="${iGS>0?mc(iA,iGS):''} metric-bold">${fn(iA)}</td>
+      <td><input type="number" class="form-input" id="sg-fu-${key}" value="${fG||''}" placeholder="0" min="0" style="max-width:70px;padding:5px 8px;font-size:12px;"></td>
+      <td class="${fGS>0?mc(fA,fGS):''} metric-bold">${fn(fA)}</td>
+      <td><input type="number" class="form-input" id="sg-coll-${key}" value="${cG||''}" placeholder="125" min="0" step="0.01" style="max-width:80px;padding:5px 8px;font-size:12px;"></td>
+      <td class="${cGS>0?mc(cA,cGS):''} metric-bold">${fd(cA)}</td>
       <td><button class="btn btn-primary btn-sm" onclick="saveSchedulerGoal('${name}','${month}','${g?g.id:''}')">Save</button></td>
     </tr>`;
   });
 
-  html += `</tbody></table></div>
-    <div style="margin-top:12px;display:flex;justify-content:flex-end;">
+  html+=`</tbody></table></div>
+    <div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:11px;color:var(--text-light);font-style:italic">Goals are monthly targets · actuals shown for selected period</div>
       <button class="btn btn-secondary btn-sm" onclick="saveAllSchedulerGoals('${month}')">💾 Save All</button>
     </div>
   </div>`;
@@ -2320,6 +2332,7 @@ function renderGoalsContent(){
   document.getElementById('goals-content').innerHTML = html;
 }
 
+function setGoalsPeriod(period){ _goalsPeriod=period; renderGoalsContent(); }
 function goalsThisMonth(){
   _goalsMonth = new Date().toISOString().slice(0,7);
   document.getElementById('goals-month-picker').value = _goalsMonth;
@@ -2332,9 +2345,11 @@ function goalsChangeMonth(){
 }
 
 async function saveTeamGoal(month){
-  const fields = ['appts','calls','collections','referrals','scheduled'];
-  const row = { id:`team_${month}`, month, name:'_team' };
-  fields.forEach(f => { row[f] = +document.getElementById(`tgoal-${f}`)?.value||0; });
+  const row = { id:`team_${month}`, month, name:'_team',
+    inits: +document.getElementById('tgoal-inits')?.value||0,
+    fu: +document.getElementById('tgoal-fu')?.value||0,
+    collections: +document.getElementById('tgoal-collections')?.value||0
+  };
   try {
     showLoading(true);
     await supa.upsertGoal(row);
@@ -2347,10 +2362,10 @@ async function saveTeamGoal(month){
 
 async function saveSchedulerGoal(name, month, existingId){
   const key = name.replace(/\s/g,'_');
-  const appts = +document.getElementById(`sg-appts-${key}`)?.value||0;
-  const calls  = +document.getElementById(`sg-calls-${key}`)?.value||0;
-  const coll   = +document.getElementById(`sg-coll-${key}`)?.value||0;
-  const row = { id: existingId||`${month}_${key}_${Date.now()}`, month, name, appts, calls, collections:coll };
+  const inits = +document.getElementById(`sg-inits-${key}`)?.value||0;
+  const fu    = +document.getElementById(`sg-fu-${key}`)?.value||0;
+  const coll  = +document.getElementById(`sg-coll-${key}`)?.value||0;
+  const row = { id: existingId||`${month}_${key}_${Date.now()}`, month, name, inits, fu, collections:coll };
   try {
     showLoading(true);
     await supa.upsertGoal(row);
@@ -2369,12 +2384,12 @@ async function saveAllSchedulerGoals(month){
   let saved=0, failed=0;
   for(const name of NAMES){
     const key=name.replace(/\s/g,'_');
-    const appts=+document.getElementById(`sg-appts-${key}`)?.value||0;
-    const calls=+document.getElementById(`sg-calls-${key}`)?.value||0;
+    const inits=+document.getElementById(`sg-inits-${key}`)?.value||0;
+    const fu=+document.getElementById(`sg-fu-${key}`)?.value||0;
     const coll=+document.getElementById(`sg-coll-${key}`)?.value||0;
-    if(!appts&&!calls&&!coll) continue;
+    if(!inits&&!fu&&!coll) continue;
     const existing=byName[name];
-    const row={id:existing?.id||`${month}_${key}_${Date.now()}`,month,name,appts,calls,collections:coll};
+    const row={id:existing?.id||`${month}_${key}_${Date.now()}`,month,name,inits,fu,collections:coll};
     try{ await supa.upsertGoal(row); saved++; } catch(e){ failed++; }
   }
   showLoading(false);
