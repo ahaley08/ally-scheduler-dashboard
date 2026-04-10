@@ -2425,7 +2425,7 @@ async function saveTeamGoal(month){
     _goals = await supa.getGoals(month);
     toast('Team goals saved ✓');
     renderGoalsContent();
-  } catch(e){ toast('Save failed','error'); }
+  } catch(e){ console.error(e); toast('Save failed: '+e.message,'error'); }
   finally { showLoading(false); }
 }
 
@@ -2442,7 +2442,7 @@ async function saveSchedulerGoal(name, month, existingId){
     if(idx>-1) _goals[idx]=row; else _goals.push(row);
     toast(`${name} goals saved ✓`);
     renderGoalsContent();
-  } catch(e){ toast('Save failed','error'); }
+  } catch(e){ console.error(e); toast('Save failed: '+e.message,'error'); }
   finally { showLoading(false); }
 }
 
