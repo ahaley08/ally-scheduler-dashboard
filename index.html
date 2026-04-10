@@ -2198,6 +2198,19 @@ async function renderGoals(){
   renderGoalsContent();
 }
 
+function countWorkDays(s, e){
+  // Count Mon–Fri between two YYYY-MM-DD strings (inclusive)
+  let count = 0;
+  const d = pd(s);
+  const last = pd(e);
+  while(d <= last){
+    const dow = d.getDay();
+    if(dow >= 1 && dow <= 5) count++;
+    d.setDate(d.getDate()+1);
+  }
+  return count;
+}
+
 function renderGoalsContent(){
   const now = new Date();
   const month = _goalsMonth;
@@ -2206,49 +2219,71 @@ function renderGoalsContent(){
   _goals.forEach(g => byName[g.name] = g);
   const teamGoal = byName['_team'] || null;
 
-  // ── Date range for actuals based on selected period ──
   const today = ymd(now);
-  const curYear = String(now.getFullYear());
-  let s, e, periodLabel;
+  const ms = month+'-01';
+  const me = monthEnd(month);
+  const monthEffEnd = me < today ? me : today;
+
+  // Total work days in the full month (Mon–Fri only)
+  const workDaysInMonth = countWorkDays(ms, me);
+  // Work days elapsed so far this month
+  const workDaysElapsed = countWorkDays(ms, monthEffEnd);
+
+  // ── Date range + period-specific work days for actuals ──
+  let s, e, periodLabel, workDaysPeriod;
 
   if(_goalsPeriod === 'daily'){
-    s = today; e = today;
-    periodLabel = now.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
+    // Use whatever date is in the daily picker, or today
+    const dpVal = document.getElementById('goals-day-picker')?.value || today;
+    s = dpVal; e = dpVal;
+    workDaysPeriod = 1; // always 1 day
+    periodLabel = pd(dpVal).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
   } else if(_goalsPeriod === 'weekly'){
     s = weekStart(now);
     const we = weekEnd(s);
     e = we < today ? we : today;
-    periodLabel = `${pd(s).toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${pd(e).toLocaleDateString('en-US',{month:'short',day:'numeric'})}`;
-  } else if(_goalsPeriod === 'monthly'){
-    s = month+'-01';
-    const me = monthEnd(month);
-    e = me < today ? me : today;
-    periodLabel = monthLabel;
-  } else {
-    s = curYear+'-01-01'; e = today;
-    periodLabel = curYear+' YTD';
+    workDaysPeriod = countWorkDays(s, e);
+    periodLabel = `Week of ${pd(s).toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${pd(e).toLocaleDateString('en-US',{month:'short',day:'numeric'})} (${workDaysPeriod} work days)`;
+  } else { // monthly
+    s = ms; e = monthEffEnd;
+    workDaysPeriod = workDaysElapsed;
+    periodLabel = `${monthLabel} (${workDaysElapsed}/${workDaysInMonth} work days)`;
   }
 
-  const schedulerRows = NAMES.map(name => ({ name, g: byName[name]||null, m: aggOrBase(name,s,e) }));
+  // Per-day goal = monthly goal ÷ work days in month
+  // Period target = per-day goal × work days in period
+  const periodGoalFactor = workDaysPeriod / workDaysInMonth;
 
-  // Scale monthly goals to match selected period
-  const scaleFactor = _goalsPeriod==='daily' ? 1/22 : _goalsPeriod==='weekly' ? 5/22 : _goalsPeriod==='yearly' ? 12 : 1;
+  const schedulerRows = NAMES.map(name => ({
+    name,
+    g: byName[name]||null,
+    m: aggOrBase(name, s, e)
+  }));
 
   const GOAL_FIELDS = [
-    { key:'inits',       label:'Initials',       ph:'0',   get: r=>r.m?r.m.i||0:0, fmt:v=>fn(v) },
-    { key:'fu',          label:'Existing (F/U)', ph:'0',   get: r=>r.m?r.m.f||0:0, fmt:v=>fn(v) },
-    { key:'collections', label:'Collections',    ph:'125', get: r=>r.m?r.m.d||0:0, fmt:v=>fd(v) },
+    { key:'inits',       label:'Initials',       ph:'0',   get:r=>r.m?r.m.i||0:0, fmt:v=>fn(v)  },
+    { key:'fu',          label:'Existing (F/U)', ph:'0',   get:r=>r.m?r.m.f||0:0, fmt:v=>fn(v)  },
+    { key:'collections', label:'Collections',    ph:'125', get:r=>r.m?r.m.d||0:0, fmt:v=>fd(v)  },
   ];
 
   const withData = schedulerRows.filter(r=>r.m);
+
+  // Daily date picker (only shown in daily mode)
+  const dayPicker = _goalsPeriod === 'daily' ? `
+    <div style="display:flex;align-items:center;gap:6px;padding:10px 14px;background:var(--blue-lt);border-radius:var(--radius-sm);margin-bottom:14px;flex-wrap:wrap;">
+      <span style="font-size:11px;font-weight:700;color:var(--blue)">📅 Select date:</span>
+      <input type="date" class="form-input" id="goals-day-picker" value="${today}" style="max-width:160px;" onchange="renderGoalsContent()">
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('goals-day-picker').value='${today}';renderGoalsContent()">Today</button>
+    </div>` : '';
 
   // Team summary cards
   const teamCards = GOAL_FIELDS.map(f => {
     const actual = withData.length ? withData.reduce((s,r)=>s+(f.get(r)||0),0)/withData.length : 0;
     const rawGoal = teamGoal ? (+teamGoal[f.key]||0) : 0;
-    const goalVal = rawGoal * scaleFactor;
+    const goalVal = rawGoal * periodGoalFactor;
     const pct2 = goalVal>0 ? Math.min(100,Math.round((actual/goalVal)*100)) : 0;
     const color = goalVal>0 ? (pct2>=100?'var(--green)':pct2>=75?'var(--amber)':'var(--red)') : 'var(--border)';
+    const perDayGoal = workDaysInMonth>0 ? rawGoal/workDaysInMonth : 0;
     return `<div class="kpi-card" style="border-top:3px solid ${color}">
       <div class="kpi-label">${f.label}</div>
       <div style="display:flex;align-items:baseline;gap:6px;margin-top:4px">
@@ -2256,18 +2291,21 @@ function renderGoalsContent(){
         <div style="font-size:11px;color:var(--text-light)">/ ${goalVal>0?f.fmt(goalVal):'no goal'}</div>
       </div>
       ${goalVal>0?pb(actual,goalVal):'<div style="font-size:10px;color:var(--text-light);margin-top:4px">No goal set</div>'}
-      <div style="font-size:10px;color:var(--text-light);margin-top:3px">Team avg · ${periodLabel}</div>
+      <div style="font-size:10px;color:var(--text-light);margin-top:3px">Team avg · ${rawGoal>0?f.fmt(perDayGoal)+'/day goal':''}</div>
     </div>`;
   }).join('');
 
-  const toggleBtns = ['daily','weekly','monthly','yearly'].map(p=>`
-    <button onclick="setGoalsPeriod('${p}')" style="padding:7px 16px;border-radius:20px;border:2px solid ${_goalsPeriod===p?'var(--blue)':'var(--border)'};background:${_goalsPeriod===p?'var(--blue)':'white'};color:${_goalsPeriod===p?'white':'var(--text-mid)'};font-family:'Montserrat',sans-serif;font-size:11px;font-weight:700;cursor:pointer;transition:all 0.15s;">
-      ${p==='daily'?'📅':p==='weekly'?'📆':p==='monthly'?'🗓':'📈'} ${p.charAt(0).toUpperCase()+p.slice(1)}
+  const toggleBtns = ['daily','weekly','monthly'].map(p=>`
+    <button onclick="setGoalsPeriod('${p}')" style="padding:7px 18px;border-radius:20px;border:2px solid ${_goalsPeriod===p?'var(--blue)':'var(--border)'};background:${_goalsPeriod===p?'var(--blue)':'white'};color:${_goalsPeriod===p?'white':'var(--text-mid)'};font-family:'Montserrat',sans-serif;font-size:11px;font-weight:700;cursor:pointer;transition:all 0.15s;">
+      ${p==='daily'?'📅':p==='weekly'?'📆':'🗓'} ${p.charAt(0).toUpperCase()+p.slice(1)}
     </button>`).join('');
 
   let html = `
   <div class="section-header">
-    <div><div class="section-title">Goals</div><div class="section-sub">Initials, Existing &amp; Collections — goals set monthly, actuals by selected period</div></div>
+    <div>
+      <div class="section-title">Goals</div>
+      <div class="section-sub">Set monthly goals → broken down by actual Mon–Fri work days · fed by scheduler log &amp; referral entries</div>
+    </div>
     <div class="search-bar">
       <input type="month" class="form-input" id="goals-month-picker" value="${month}" style="max-width:160px;" title="Select month to load/set goals">
       <button class="btn btn-primary btn-sm" onclick="goalsChangeMonth()">Load Goals</button>
@@ -2276,55 +2314,85 @@ function renderGoalsContent(){
     </div>
   </div>
 
-  <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap;">${toggleBtns}</div>
+  <!-- Period toggle -->
+  <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">${toggleBtns}</div>
+  ${dayPicker}
 
+  <!-- Work day context bar -->
+  <div style="display:flex;gap:18px;align-items:center;padding:10px 16px;background:var(--blue-lt);border-radius:var(--radius-sm);margin-bottom:16px;flex-wrap:wrap;">
+    <div><span style="font-size:11px;font-weight:700;color:var(--blue)">📆 ${monthLabel}</span> <span style="font-size:11px;color:var(--text-mid)">— ${workDaysInMonth} work days total</span></div>
+    <div style="font-size:11px;color:var(--text-mid)">${workDaysElapsed} work days elapsed so far</div>
+    <div style="font-size:11px;color:var(--text-mid)">Goal period: <strong>${workDaysPeriod} work day${workDaysPeriod!==1?'s':''}</strong></div>
+    ${teamGoal&&+teamGoal.inits>0?`<div style="font-size:11px;color:var(--text-mid)">Inits/day: <strong>${fn(+teamGoal.inits/workDaysInMonth)}</strong> · F/U/day: <strong>${fn(+teamGoal.fu/workDaysInMonth)}</strong> · Coll/day: <strong>${fd(+teamGoal.collections/workDaysInMonth)}</strong></div>`:''}
+  </div>
+
+  <!-- Team summary cards -->
   <div class="card" style="margin-bottom:18px">
-    <div class="card-title"><span class="card-title-accent"></span> Team Averages vs Goals — ${periodLabel}</div>
+    <div class="card-title"><span class="card-title-accent"></span> Team Performance vs Goal — ${periodLabel}</div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px;">${teamCards}</div>
-    <div class="card-title" style="margin-bottom:8px"><span class="card-title-accent"></span> Set Monthly Targets (team avg / month)</div>
+
+    <div class="card-title" style="margin-bottom:8px"><span class="card-title-accent"></span> Set Monthly Targets (per month · auto-divided by work days)</div>
     <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
       ${GOAL_FIELDS.map(f=>`
         <div style="display:flex;flex-direction:column;gap:3px;">
-          <label style="font-size:10px;font-weight:700;color:var(--text-light);text-transform:uppercase">${f.label} / month</label>
+          <label style="font-size:10px;font-weight:700;color:var(--text-light);text-transform:uppercase">${f.label} goal / month</label>
           <input type="number" class="form-input" id="tgoal-${f.key}" value="${teamGoal?teamGoal[f.key]||'':''}" placeholder="${f.ph}" min="0" step="${f.key==='collections'?'0.01':'1'}" style="max-width:120px;padding:6px 10px;font-size:13px;">
+          ${teamGoal&&+teamGoal[f.key]>0?`<div style="font-size:10px;color:var(--text-light)">${f.fmt(+teamGoal[f.key]/workDaysInMonth)} / work day</div>`:''}
         </div>`).join('')}
-      <button class="btn btn-primary btn-sm" onclick="saveTeamGoal('${month}')" style="margin-bottom:2px">Save Team Goals</button>
+      <button class="btn btn-primary btn-sm" onclick="saveTeamGoal('${month}')" style="margin-bottom:18px">Save Team Goals</button>
     </div>
   </div>
 
+  <!-- Per-scheduler table -->
   <div class="card">
     <div class="card-title"><span class="card-title-accent"></span> Scheduler Goals vs Actuals — ${periodLabel}</div>
-    <div class="scrollable-table"><table class="data-table" style="min-width:720px">
-      <thead><tr>
-        <th>Scheduler</th><th>Tier</th>
-        <th>Initials Goal/mo</th><th>Initials Actual</th>
-        <th>Existing Goal/mo</th><th>Existing Actual</th>
-        <th>Coll. Goal/mo</th><th>Coll. Actual</th>
-        <th></th>
-      </tr></thead><tbody>`;
+    <div class="scrollable-table"><table class="data-table" style="min-width:760px">
+      <thead>
+        <tr>
+          <th rowspan="2">Scheduler</th><th rowspan="2">Tier</th>
+          <th colspan="3" style="text-align:center;background:#044d91">Initials</th>
+          <th colspan="3" style="text-align:center;background:#3a7a30">Existing (F/U)</th>
+          <th colspan="3" style="text-align:center;background:#8f4fb0">Collections</th>
+          <th rowspan="2"></th>
+        </tr>
+        <tr>
+          <th>Monthly</th><th>Daily</th><th>Actual</th>
+          <th>Monthly</th><th>Daily</th><th>Actual</th>
+          <th>Monthly</th><th>Daily</th><th>Actual</th>
+        </tr>
+      </thead><tbody>`;
 
   schedulerRows.forEach(({name,g,m}) => {
     const tier = getTier(name);
     const key = name.replace(/\s/g,'_');
     const iG=g?+g.inits||0:0, fG=g?+g.fu||0:0, cG=g?+g.collections||0:0;
     const iA=m?m.i||0:0, fA=m?m.f||0:0, cA=m?m.d||0:0;
-    const iGS=iG*scaleFactor, fGS=fG*scaleFactor, cGS=(cG||0)*scaleFactor;
+    // Daily goals = monthly ÷ work days in month
+    const iDay = workDaysInMonth>0?iG/workDaysInMonth:0;
+    const fDay = workDaysInMonth>0?fG/workDaysInMonth:0;
+    const cDay = workDaysInMonth>0?cG/workDaysInMonth:0;
+    // Period targets
+    const iT=iG*periodGoalFactor, fT=fG*periodGoalFactor, cT=cG*periodGoalFactor;
+
     html+=`<tr>
       <td class="scheduler-name" style="cursor:pointer" onclick="jumpTo('${name}')">${name}</td>
       <td><span class="tier-pill ${tc(tier)}">${tier}</span></td>
-      <td><input type="number" class="form-input" id="sg-inits-${key}" value="${iG||''}" placeholder="0" min="0" style="max-width:70px;padding:5px 8px;font-size:12px;"></td>
-      <td class="${iGS>0?mc(iA,iGS):''} metric-bold">${fn(iA)}</td>
-      <td><input type="number" class="form-input" id="sg-fu-${key}" value="${fG||''}" placeholder="0" min="0" style="max-width:70px;padding:5px 8px;font-size:12px;"></td>
-      <td class="${fGS>0?mc(fA,fGS):''} metric-bold">${fn(fA)}</td>
-      <td><input type="number" class="form-input" id="sg-coll-${key}" value="${cG||''}" placeholder="125" min="0" step="0.01" style="max-width:80px;padding:5px 8px;font-size:12px;"></td>
-      <td class="${cGS>0?mc(cA,cGS):''} metric-bold">${fd(cA)}</td>
+      <td><input type="number" class="form-input" id="sg-inits-${key}" value="${iG||''}" placeholder="0" min="0" style="max-width:65px;padding:4px 7px;font-size:12px;"></td>
+      <td style="color:var(--text-light);font-size:11px;font-weight:600">${iDay>0?fn(iDay):'-'}</td>
+      <td class="${iT>0?mc(iA,iT):''} metric-bold">${fn(iA)}</td>
+      <td><input type="number" class="form-input" id="sg-fu-${key}" value="${fG||''}" placeholder="0" min="0" style="max-width:65px;padding:4px 7px;font-size:12px;"></td>
+      <td style="color:var(--text-light);font-size:11px;font-weight:600">${fDay>0?fn(fDay):'-'}</td>
+      <td class="${fT>0?mc(fA,fT):''} metric-bold">${fn(fA)}</td>
+      <td><input type="number" class="form-input" id="sg-coll-${key}" value="${cG||''}" placeholder="125" min="0" step="0.01" style="max-width:75px;padding:4px 7px;font-size:12px;"></td>
+      <td style="color:var(--text-light);font-size:11px;font-weight:600">${cDay>0?fd(cDay):'-'}</td>
+      <td class="${cT>0?mc(cA,cT):''} metric-bold">${fd(cA)}</td>
       <td><button class="btn btn-primary btn-sm" onclick="saveSchedulerGoal('${name}','${month}','${g?g.id:''}')">Save</button></td>
     </tr>`;
   });
 
   html+=`</tbody></table></div>
-    <div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;">
-      <div style="font-size:11px;color:var(--text-light);font-style:italic">Goals are monthly targets · actuals shown for selected period</div>
+    <div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <div style="font-size:11px;color:var(--text-light);font-style:italic">Monthly goals ÷ ${workDaysInMonth} Mon–Fri work days = daily target · Actuals from scheduler log &amp; referral entries</div>
       <button class="btn btn-secondary btn-sm" onclick="saveAllSchedulerGoals('${month}')">💾 Save All</button>
     </div>
   </div>`;
@@ -2333,6 +2401,7 @@ function renderGoalsContent(){
 }
 
 function setGoalsPeriod(period){ _goalsPeriod=period; renderGoalsContent(); }
+
 function goalsThisMonth(){
   _goalsMonth = new Date().toISOString().slice(0,7);
   document.getElementById('goals-month-picker').value = _goalsMonth;
